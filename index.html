@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Custom styles for background and font */
+        /* Base styles */
         body {
             font-family: 'Inter', sans-serif;
             background-color: #1a1a2e; /* Dark purple/blue background */
@@ -17,11 +17,11 @@
             align-items: center;
             min-height: 100vh;
             margin: 0;
-            overflow: hidden; /* Hide overflow for background elements */
+            overflow: hidden;
             position: relative;
         }
 
-        /* Custom button styles */
+        /* Custom buttons */
         .btn-primary {
             background: linear-gradient(135deg, #8a2be2, #4b0082); /* Purple gradient */
             transition: all 0.3s ease;
@@ -59,8 +59,8 @@
             border-color: #8a2be2;
         }
 
-        /* Login/Signup Modal Styles */
-        #loginSignupModal {
+        /* Modal specific styles */
+        .auth-modal {
             position: fixed;
             top: 0;
             left: 0;
@@ -72,7 +72,7 @@
             align-items: center;
             z-index: 100;
         }
-        #loginSignupModalContent {
+        .auth-modal-content {
             background-color: #22223b;
             padding: 2rem;
             border-radius: 0.75rem;
@@ -81,11 +81,11 @@
             max-width: 400px;
             text-align: center;
         }
-        #loginSignupError {
+        .error-message {
             color: #fca5a5;
             font-size: 0.85rem;
             margin-top: 0.5rem;
-            min-height: 1.2rem; /* Reserve space to prevent layout shift */
+            min-height: 1.2rem;
         }
         .form-toggle-buttons {
             display: flex;
@@ -110,58 +110,59 @@
     </style>
 </head>
 <body dir="rtl">
-    <div id="loginSignupModal">
-        <div id="loginSignupModalContent">
-            <div class="form-toggle-buttons">
-                <button id="showLoginBtn" class="active" data-form="login">تسجيل الدخول</button>
-                <button id="showSignupBtn" data-form="signup">إنشاء حساب</button>
+    <div id="authModal" class="auth-modal hidden">
+        <div class="auth-modal-content">
+            <div class="form-toggle-buttons mb-6">
+                <button id="showLoginBtn" class="active">تسجيل الدخول</button>
+                <button id="showSignupBtn">إنشاء حساب</button>
             </div>
 
             <div id="loginForm">
-                <h3 class="text-xl font-bold mb-4" id="loginTitle">تسجيل الدخول</h3>
+                <h3 class="text-xl font-bold mb-4">تسجيل الدخول</h3>
                 <input type="email" id="loginEmail" class="input-field w-full mb-3" placeholder="البريد الإلكتروني">
                 <input type="password" id="loginPassword" class="input-field w-full mb-3" placeholder="كلمة المرور">
-                <p id="loginSignupError" class="text-red-400 text-sm mb-4"></p>
+                <p id="loginError" class="error-message"></p>
                 <button id="loginBtn" class="btn-primary py-2 px-6 rounded-md w-full" disabled>تسجيل الدخول</button>
             </div>
 
             <div id="signupForm" class="hidden">
-                <h3 class="text-xl font-bold mb-4" id="signupTitle">إنشاء حساب</h3>
+                <h3 class="text-xl font-bold mb-4">إنشاء حساب</h3>
                 <input type="text" id="signupUsername" class="input-field w-full mb-3" placeholder="اسم المستخدم">
                 <input type="email" id="signupEmail" class="input-field w-full mb-3" placeholder="البريد الإلكتروني">
                 <input type="password" id="signupPassword" class="input-field w-full mb-3" placeholder="كلمة المرور">
-                <p id="signupError" class="text-red-400 text-sm mb-4"></p>
+                <p id="signupError" class="error-message"></p>
                 <button id="signupBtn" class="btn-primary py-2 px-6 rounded-md w-full" disabled>إنشاء حساب</button>
+            </div>
+
+            <div id="usernameSetupForm" class="hidden">
+                <h3 class="text-xl font-bold mb-4">أكمل ملفك الشخصي</h3>
+                <p class="text-sm mb-4">الرجاء اختيار اسم مستخدم فريد.</p>
+                <input type="text" id="setupUsername" class="input-field w-full mb-3" placeholder="اسم المستخدم">
+                <p id="setupUsernameError" class="error-message"></p>
+                <button id="saveUsernameBtn" class="btn-primary py-2 px-6 rounded-md w-full" disabled>حفظ اسم المستخدم</button>
             </div>
 
             <div class="mt-6">
                 <button id="googleSignInBtn" class="btn-secondary py-2 px-6 rounded-md w-full flex items-center justify-center gap-2" disabled>
-                    <i class="fab fa-google"></i> <span id="googleSignInText">تسجيل الدخول باستخدام جوجل</span>
+                    <i class="fab fa-google"></i> <span>تسجيل الدخول باستخدام جوجل</span>
                 </button>
             </div>
         </div>
     </div>
 
-    <div id="lobbyPage" class="hidden"></div>
-    <div id="gamePage" class="hidden"></div>
+    <div id="mainAppContent" class="hidden text-center">
+        <h1 class="text-3xl font-bold mb-4">مرحباً بك في TRUWPi!</h1>
+        <p class="text-lg">لقد تم تسجيل دخولك بنجاح.</p>
+        <p class="text-md mt-2" id="loggedInUserInfo"></p>
+        <button id="logoutBtn" class="btn-secondary py-2 px-6 rounded-md mt-6">تسجيل الخروج</button>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global Firebase variables
-        let app;
-        let db;
-        let auth;
-        let currentUserId = null;
-        let currentUsername = null;
-
-        // معرف التطبيق (appId) الخاص بك.
-        const appId = 'game-1-b46e1';
-
-        // إعدادات Firebase الخاصة بمشروعك.
-        // **تم استبدال القيم النائبة بالقيم الفعلية التي قدمتها.**
+        // --- Firebase Configuration & Global Variables ---
         const firebaseConfig = {
             apiKey: "AIzaSyAi0AkAh7J7CAXak-8TaH0W9e6yWV0lkJ8",
             authDomain: "game-1-b46e1.firebaseapp.com",
@@ -171,61 +172,130 @@
             appId: "1:639039311478:web:2206bed0773a5dc72dd957",
             measurementId: "G-RXG7VCP7PD"
         };
+        const APP_ID = 'game-1-b46e1'; // Your application's ID
 
-        // هذا المتغير يستخدم فقط في بيئة Canvas ولا يكون متاحًا عند التشغيل المباشر.
-        // لذلك، لن نستخدمه هنا.
-        // const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        let app;
+        let auth;
+        let db;
+        let currentUserId = null;
+        let currentUsername = null;
+        let currentLanguage = 'ar'; // Default language
 
-        // Translation dictionary (simplified for this context)
+        // --- DOM Elements ---
+        const authModal = document.getElementById('authModal');
+        const loginForm = document.getElementById('loginForm');
+        const signupForm = document.getElementById('signupForm');
+        const usernameSetupForm = document.getElementById('usernameSetupForm');
+        const mainAppContent = document.getElementById('mainAppContent');
+
+        const showLoginBtn = document.getElementById('showLoginBtn');
+        const showSignupBtn = document.getElementById('showSignupBtn');
+
+        const loginEmailInput = document.getElementById('loginEmail');
+        const loginPasswordInput = document.getElementById('loginPassword');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginErrorDisplay = document.getElementById('loginError');
+
+        const signupUsernameInput = document.getElementById('signupUsername');
+        const signupEmailInput = document.getElementById('signupEmail');
+        const signupPasswordInput = document.getElementById('signupPassword');
+        const signupBtn = document.getElementById('signupBtn');
+        const signupErrorDisplay = document.getElementById('signupError');
+
+        const setupUsernameInput = document.getElementById('setupUsername');
+        const saveUsernameBtn = document.getElementById('saveUsernameBtn');
+        const setupUsernameErrorDisplay = document.getElementById('setupUsernameError');
+
+        const googleSignInBtn = document.getElementById('googleSignInBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const loggedInUserInfo = document.getElementById('loggedInUserInfo');
+
+        // --- Translations ---
         const translations = {
             en: {
-                login: "Login",
-                signup: "Sign Up",
-                email: "Email",
-                password: "Password",
-                username: "Username",
-                loginError: "Login failed. Please check your email and password.",
-                signupError: "Sign up failed. Please try again with a different email.",
+                login: "Login", signup: "Sign Up", email: "Email", password: "Password", username: "Username",
+                loginFailed: "Login failed. Please check your email and password.",
+                signupFailed: "Sign up failed. Please try again.",
                 invalidEmail: "Invalid email address.",
                 passwordTooShort: "Password must be at least 6 characters long.",
                 googleSignIn: "Sign in with Google",
                 usernameRequired: "Username is required.",
                 usernameInvalid: "Username must be lowercase, alphanumeric with underscores, and between 3-15 characters.",
                 usernameTaken: "This username is already taken. Please choose another.",
+                profileComplete: "Complete Your Profile",
+                chooseUsername: "Please choose a unique username.",
                 usernameSaved: (username) => `Username "${username}" saved successfully!`,
-                authenticationSystemNotReady: "Authentication system not ready. Please try again."
+                welcome: (username) => `Welcome, ${username}!`,
+                loggedInAs: (email, username) => `Logged in as: ${email} (Username: ${username})`,
+                logout: "Logout",
+                firebaseInitError: "Firebase initialization failed. Please check your console for details.",
+                authSystemNotReady: "Authentication system not ready. Please try again."
             },
             ar: {
-                login: "تسجيل الدخول",
-                signup: "إنشاء حساب",
-                email: "البريد الإلكتروني",
-                password: "كلمة المرور",
-                username: "اسم المستخدم",
-                loginError: "فشل تسجيل الدخول. الرجاء التحقق من البريد الإلكتروني وكلمة المرور.",
-                signupError: "فشل إنشاء الحساب. الرجاء المحاولة مرة أخرى ببريد إلكتروني مختلف.",
+                login: "تسجيل الدخول", signup: "إنشاء حساب", email: "البريد الإلكتروني", password: "كلمة المرور", username: "اسم المستخدم",
+                loginFailed: "فشل تسجيل الدخول. الرجاء التحقق من البريد الإلكتروني وكلمة المرور.",
+                signupFailed: "فشل إنشاء الحساب. الرجاء المحاولة مرة أخرى.",
                 invalidEmail: "عنوان بريد إلكتروني غير صالح.",
                 passwordTooShort: "يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.",
                 googleSignIn: "تسجيل الدخول باستخدام جوجل",
                 usernameRequired: "اسم المستخدم مطلوب.",
                 usernameInvalid: "يجب أن يكون اسم المستخدم أحرفًا صغيرة وأرقامًا وشرطات سفلية، ويتراوح طوله بين 3-15 حرفًا.",
                 usernameTaken: "اسم المستخدم هذا مستخدم بالفعل. الرجاء اختيار اسم آخر.",
+                profileComplete: "أكمل ملفك الشخصي",
+                chooseUsername: "الرجاء اختيار اسم مستخدم فريد.",
                 usernameSaved: (username) => `تم حفظ اسم المستخدم "${username}" بنجاح!`,
-                authenticationSystemNotReady: "نظام المصادقة غير جاهز. الرجاء المحاولة مرة أخرى."
+                welcome: (username) => `مرحباً بك يا ${username}!`,
+                loggedInAs: (email, username) => `مسجل الدخول كـ: ${email} (اسم المستخدم: ${username})`,
+                logout: "تسجيل الخروج",
+                firebaseInitError: "فشل تهيئة Firebase. الرجاء التحقق من وحدة التحكم للحصول على التفاصيل.",
+                authSystemNotReady: "نظام المصادقة غير جاهز. الرجاء المحاولة مرة أخرى."
             }
         };
-
-        let currentLanguage = 'ar'; // Default to Arabic for this specific request
 
         function getTranslation(key, ...args) {
             const translation = translations[currentLanguage][key];
             if (typeof translation === 'function') {
                 return translation(...args);
             }
-            return translation || key; // Fallback to key if not found
+            return translation || key;
         }
 
-        // Custom alert function (replaces window.alert)
-        function alert(message) {
+        // --- UI Utility Functions ---
+        function showForm(formId) {
+            loginForm.classList.add('hidden');
+            signupForm.classList.add('hidden');
+            usernameSetupForm.classList.add('hidden');
+            document.getElementById(formId).classList.remove('hidden');
+
+            showLoginBtn.classList.remove('active');
+            showSignupBtn.classList.remove('active');
+            if (formId === 'loginForm') showLoginBtn.classList.add('active');
+            if (formId === 'signupForm') showSignupBtn.classList.add('active');
+
+            // Clear all error messages when switching forms
+            loginErrorDisplay.textContent = '';
+            signupErrorDisplay.textContent = '';
+            setupUsernameErrorDisplay.textContent = '';
+        }
+
+        function setButtonsEnabled(enabled) {
+            loginBtn.disabled = !enabled;
+            signupBtn.disabled = !enabled;
+            googleSignInBtn.disabled = !enabled;
+            saveUsernameBtn.disabled = !enabled; // Enable save username button too
+        }
+
+        function showAuthModal() {
+            authModal.classList.remove('hidden');
+            mainAppContent.classList.add('hidden');
+        }
+
+        function hideAuthModal() {
+            authModal.classList.add('hidden');
+            mainAppContent.classList.remove('hidden');
+        }
+
+        function displayAlert(message) {
             const existingAlert = document.getElementById('custom-alert');
             if (existingAlert) {
                 existingAlert.remove();
@@ -250,179 +320,45 @@
             document.body.appendChild(alertDiv);
         }
 
-        // --- Firebase Integration ---
+        // --- Firebase Core Initialization ---
         async function setupFirebase() {
             console.log("[Firebase] Initializing Firebase...");
+            console.log("[Firebase] firebaseConfig provided:", firebaseConfig);
 
             try {
-                // نتحقق مما إذا كانت إعدادات FirebaseConfig قد تم استبدالها بالقيم الفعلية
+                // Ensure firebaseConfig is correctly set
                 if (firebaseConfig.apiKey === "YOUR_API_KEY" || Object.keys(firebaseConfig).length === 0) {
-                    console.error("[Firebase] firebaseConfig is not properly set. Please replace placeholder values with your actual Firebase project configuration.");
-                    alert("خطأ في تهيئة Firebase: إعدادات مشروع Firebase غير صحيحة أو مفقودة. يرجى استبدال القيم النائبة بالقيم الفعلية لمشروعك في الكود.");
+                    console.error("[Firebase ERROR] firebaseConfig is not properly set. Please replace placeholder values with your actual Firebase project configuration.");
+                    displayAlert(getTranslation('firebaseInitError'));
                     return;
                 }
 
-                console.log("[Firebase] Final firebaseConfig used:", firebaseConfig);
-                console.log("[Firebase] Using appId:", appId);
-
                 app = initializeApp(firebaseConfig);
-                console.log("[Firebase] Firebase app initialized. App object:", app);
-                db = getFirestore(app);
-                console.log("[Firebase] Firestore initialized. DB object:", db);
                 auth = getAuth(app);
-                console.log("[Firebase] Auth initialized. Auth object:", auth);
+                db = getFirestore(app);
+                console.log("[Firebase] Firebase initialized successfully. App, Auth, DB objects:", app, auth, db);
 
-                let authReady = false; // Flag to ensure buttons are enabled only once initially
-
+                // Listen for authentication state changes
                 onAuthStateChanged(auth, async (user) => {
-                    if (!authReady) {
-                        document.getElementById('loginBtn').disabled = false;
-                        document.getElementById('signupBtn').disabled = false;
-                        document.getElementById('googleSignInBtn').disabled = false;
-                        console.log("[Firebase] Login/Signup buttons enabled after initial auth state check.");
-                        authReady = true; // Set flag so it doesn't re-enable on subsequent state changes
-                    }
-
                     if (user) {
+                        console.log(`[Auth] User authenticated: ${user.uid}`);
                         currentUserId = user.uid;
-                        console.log(`[Firebase] User authenticated: ${currentUserId}`);
                         await checkUserProfile();
                     } else {
+                        console.log("[Auth] No user logged in. Showing authentication modal.");
                         currentUserId = null;
                         currentUsername = null;
-                        console.log("[Firebase] User logged out or not authenticated. Showing login/signup modal.");
-                        document.getElementById('loginSignupModal').classList.remove('hidden');
+                        showAuthModal();
+                        showForm('loginForm'); // Default to login form
                     }
+                    // Enable buttons once Firebase Auth is known to be ready
+                    setButtonsEnabled(true);
                 });
 
             } catch (error) {
-                console.error("Error setting up Firebase:", error);
-                alert(`خطأ في تهيئة Firebase: ${error.message}. يرجى التحقق من إعداد مشروع Firebase الخاص بك.`);
-            }
-        }
-
-        // --- Authentication Functions ---
-        async function handleSignUp() {
-            // Check auth/db here as a fallback, though buttons should be disabled if not ready
-            if (!auth || !db) {
-                console.error("[Auth] Firebase Auth or DB not initialized. Cannot sign up. (Fallback check)");
-                document.getElementById('signupError').textContent = getTranslation('authenticationSystemNotReady');
-                return;
-            }
-
-            const usernameInput = document.getElementById('signupUsername');
-            const emailInput = document.getElementById('signupEmail');
-            const passwordInput = document.getElementById('signupPassword');
-            const errorDisplay = document.getElementById('signupError');
-
-            const username = usernameInput.value.trim();
-            const email = emailInput.value.trim();
-            const password = passwordInput.value.trim();
-
-            errorDisplay.textContent = '';
-
-            if (!username) {
-                errorDisplay.textContent = getTranslation('usernameRequired');
-                return;
-            }
-            const usernameRegex = /^[a-z0-9_]{3,15}$/;
-            if (!usernameRegex.test(username)) {
-                errorDisplay.textContent = getTranslation('usernameInvalid');
-                return;
-            }
-
-            if (!email || !password) {
-                errorDisplay.textContent = "الرجاء إدخال البريد الإلكتروني وكلمة المرور."; // Hardcoded for simplicity in this minimal example
-                return;
-            }
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                errorDisplay.textContent = getTranslation('invalidEmail');
-                return;
-            }
-            if (password.length < 6) {
-                errorDisplay.textContent = getTranslation('passwordTooShort');
-                return;
-            }
-
-            try {
-                const usersCollectionRef = collection(db, `artifacts/${appId}/users`);
-                const q = query(usersCollectionRef, where("profile.data.username", "==", username));
-                const querySnapshot = await getDocs(q);
-
-                if (!querySnapshot.empty) {
-                    errorDisplay.textContent = getTranslation('usernameTaken');
-                    return;
-                }
-
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
-                currentUserId = user.uid;
-
-                const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
-                await setDoc(userDocRef, { username: username, language: currentLanguage }, { merge: true });
-                currentUsername = username;
-                alert(getTranslation('usernameSaved', username));
-
-                console.log("[Auth] User signed up and profile created:", user.uid);
-                document.getElementById('loginSignupModal').classList.add('hidden');
-            } catch (error) {
-                console.error("Signup error:", error);
-                errorDisplay.textContent = getTranslation('signupError');
-            }
-        }
-
-        async function handleLogin() {
-            // Check auth/db here as a fallback
-            if (!auth || !db) {
-                console.error("[Auth] Firebase Auth or DB not initialized. Cannot log in. (Fallback check)");
-                document.getElementById('loginSignupError').textContent = getTranslation('authenticationSystemNotReady');
-                return;
-            }
-
-            const emailInput = document.getElementById('loginEmail');
-            const passwordInput = document.getElementById('loginPassword');
-            const errorDisplay = document.getElementById('loginSignupError');
-            const email = emailInput.value.trim();
-            const password = passwordInput.value.trim();
-
-            errorDisplay.textContent = '';
-
-            if (!email || !password) {
-                errorDisplay.textContent = "الرجاء إدخال البريد الإلكتروني وكلمة المرور."; // Hardcoded for simplicity
-                return;
-            }
-
-            try {
-                const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                console.log("[Auth] User logged in:", userCredential.user.uid);
-                document.getElementById('loginSignupModal').classList.add('hidden');
-            } catch (error) {
-                console.error("Login error:", error);
-                errorDisplay.textContent = getTranslation('loginError');
-            }
-        }
-
-        async function signInWithGoogle() {
-            // Check auth/db here as a fallback
-            if (!auth || !db) {
-                console.error("[Auth] Firebase Auth or DB not initialized. Cannot sign in with Google. (Fallback check)");
-                const errorDisplay = document.getElementById('loginSignupError');
-                errorDisplay.textContent = getTranslation('authenticationSystemNotReady');
-                return;
-            }
-
-            const provider = new GoogleAuthProvider();
-            try {
-                const result = await signInWithPopup(auth, provider);
-                const user = result.user;
-                currentUserId = user.uid;
-
-                console.log("[Auth] Signed in with Google:", user.uid);
-                await checkUserProfile();
-            } catch (error) {
-                console.error("Google Sign-In error:", error);
-                const errorDisplay = document.getElementById('loginSignupError');
-                errorDisplay.textContent = `${getTranslation('googleSignIn')} فشل: ${error.message}`;
+                console.error("[Firebase ERROR] Error setting up Firebase:", error);
+                displayAlert(`${getTranslation('firebaseInitError')} ${error.message}`);
+                setButtonsEnabled(false); // Keep buttons disabled on fatal init error
             }
         }
 
@@ -433,7 +369,7 @@
                 return;
             }
 
-            const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
+            const userDocRef = doc(db, `artifacts/${APP_ID}/users/${currentUserId}/profile/data`);
             try {
                 const userDocSnap = await getDoc(userDocRef);
                 if (userDocSnap.exists() && userDocSnap.data().username) {
@@ -441,117 +377,242 @@
                     currentLanguage = userDocSnap.data().language || 'ar'; // Default to Arabic
                     document.body.dir = (currentLanguage === 'ar') ? 'rtl' : 'ltr';
                     console.log(`[Profile] User profile found. Username: ${currentUsername}, Language: ${currentLanguage}.`);
-                    document.getElementById('loginSignupModal').classList.add('hidden');
-                    alert(`مرحباً بك، ${currentUsername}!`); // Welcome message
+                    hideAuthModal();
+                    loggedInUserInfo.textContent = getTranslation('loggedInAs', auth.currentUser.email || 'N/A', currentUsername);
+                    displayAlert(getTranslation('welcome', currentUsername));
                 } else {
-                    console.log("[Profile] User profile not found or username not set. Redirecting to signup form to set username.");
-                    document.getElementById('loginSignupModal').classList.remove('hidden');
-                    document.getElementById('loginForm').classList.add('hidden');
-                    document.getElementById('signupForm').classList.remove('hidden');
-                    document.getElementById('showLoginBtn').classList.remove('active');
-                    document.getElementById('showSignupBtn').classList.add('active');
-                    document.getElementById('loginSignupError').textContent = '';
-                    document.getElementById('signupError').textContent = '';
+                    console.log("[Profile] User profile not found or username not set. Prompting for username.");
+                    showAuthModal();
+                    showForm('usernameSetupForm');
+                    setupUsernameErrorDisplay.textContent = getTranslation('chooseUsername');
                 }
             } catch (error) {
-                console.error("Error fetching user profile:", error);
-                document.getElementById('loginSignupModal').classList.remove('hidden');
-                document.getElementById('loginForm').classList.add('hidden');
-                document.getElementById('signupForm').classList.remove('hidden');
-                document.getElementById('showLoginBtn').classList.remove('active');
-                document.getElementById('showSignupBtn').classList.add('active');
-                document.getElementById('loginSignupError').textContent = `${getTranslation('loginError')}: ${error.message}`;
+                console.error("[Profile ERROR] Error fetching user profile:", error);
+                displayAlert(`خطأ في جلب ملف المستخدم: ${error.message}`);
+                // Fallback to username setup if profile fetch fails
+                showAuthModal();
+                showForm('usernameSetupForm');
+                setupUsernameErrorDisplay.textContent = `خطأ في تحميل الملف: ${error.message}`;
             }
         }
 
+        async function saveUsername() {
+            if (!currentUserId || !db || !auth) {
+                setupUsernameErrorDisplay.textContent = getTranslation('authSystemNotReady');
+                return;
+            }
+
+            const username = setupUsernameInput.value.trim();
+            setupUsernameErrorDisplay.textContent = '';
+
+            if (!username) {
+                setupUsernameErrorDisplay.textContent = getTranslation('usernameRequired');
+                return;
+            }
+            const usernameRegex = /^[a-z0-9_]{3,15}$/;
+            if (!usernameRegex.test(username)) {
+                setupUsernameErrorDisplay.textContent = getTranslation('usernameInvalid');
+                return;
+            }
+
+            try {
+                const usersCollectionRef = collection(db, `artifacts/${APP_ID}/users`);
+                const q = query(usersCollectionRef, where("profile.data.username", "==", username));
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    setupUsernameErrorDisplay.textContent = getTranslation('usernameTaken');
+                    return;
+                }
+
+                const userDocRef = doc(db, `artifacts/${APP_ID}/users/${currentUserId}/profile/data`);
+                await setDoc(userDocRef, { username: username, language: currentLanguage, email: auth.currentUser.email || null }, { merge: true });
+                currentUsername = username;
+                console.log(`[Profile] Username "${username}" saved for user ${currentUserId}`);
+                displayAlert(getTranslation('usernameSaved', username));
+                hideAuthModal();
+                loggedInUserInfo.textContent = getTranslation('loggedInAs', auth.currentUser.email || 'N/A', currentUsername);
+
+            } catch (error) {
+                console.error("[Profile ERROR] Error saving username:", error);
+                setupUsernameErrorDisplay.textContent = `فشل حفظ اسم المستخدم: ${error.message}`;
+            }
+        }
+
+        // --- Authentication Handlers ---
+        async function handleEmailSignUp() {
+            signupErrorDisplay.textContent = '';
+            if (!auth || !db) {
+                signupErrorDisplay.textContent = getTranslation('authSystemNotReady');
+                return;
+            }
+
+            const username = signupUsernameInput.value.trim();
+            const email = signupEmailInput.value.trim();
+            const password = signupPasswordInput.value.trim();
+
+            if (!username) { signupErrorDisplay.textContent = getTranslation('usernameRequired'); return; }
+            if (!/^[a-z0-9_]{3,15}$/.test(username)) { signupErrorDisplay.textContent = getTranslation('usernameInvalid'); return; }
+            if (!email) { signupErrorDisplay.textContent = getTranslation('email') + ' مطلوب.'; return; }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { signupErrorDisplay.textContent = getTranslation('invalidEmail'); return; }
+            if (!password || password.length < 6) { signupErrorDisplay.textContent = getTranslation('passwordTooShort'); return; }
+
+            try {
+                // Check if username is already taken before creating user
+                const usersCollectionRef = collection(db, `artifacts/${APP_ID}/users`);
+                const q = query(usersCollectionRef, where("profile.data.username", "==", username));
+                const querySnapshot = await getDocs(q);
+                if (!querySnapshot.empty) {
+                    signupErrorDisplay.textContent = getTranslation('usernameTaken');
+                    return;
+                }
+
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                currentUserId = userCredential.user.uid;
+                // Profile will be created/checked in onAuthStateChanged
+                console.log("[Auth] User created with email:", email);
+                displayAlert('تم إنشاء الحساب بنجاح! الرجاء إكمال ملفك الشخصي.'); // User will be redirected to username setup
+
+            } catch (error) {
+                console.error("[Auth ERROR] Signup error:", error);
+                if (error.code === 'auth/email-already-in-use') {
+                    signupErrorDisplay.textContent = 'هذا البريد الإلكتروني مستخدم بالفعل.';
+                } else {
+                    signupErrorDisplay.textContent = `${getTranslation('signupFailed')}: ${error.message}`;
+                }
+            }
+        }
+
+        async function handleEmailLogin() {
+            loginErrorDisplay.textContent = '';
+            if (!auth) {
+                loginErrorDisplay.textContent = getTranslation('authSystemNotReady');
+                return;
+            }
+
+            const email = loginEmailInput.value.trim();
+            const password = loginPasswordInput.value.trim();
+
+            if (!email || !password) {
+                loginErrorDisplay.textContent = "الرجاء إدخال البريد الإلكتروني وكلمة المرور.";
+                return;
+            }
+
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                console.log("[Auth] User logged in with email:", email);
+                // onAuthStateChanged will handle hiding modal and checking profile
+            } catch (error) {
+                console.error("[Auth ERROR] Login error:", error);
+                if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    loginErrorDisplay.textContent = getTranslation('loginFailed');
+                } else {
+                    loginErrorDisplay.textContent = `${getTranslation('loginFailed')}: ${error.message}`;
+                }
+            }
+        }
+
+        async function handleGoogleSignIn() {
+            loginErrorDisplay.textContent = ''; // Clear previous errors
+            if (!auth) {
+                loginErrorDisplay.textContent = getTranslation('authSystemNotReady');
+                return;
+            }
+
+            const provider = new GoogleAuthProvider();
+            try {
+                await signInWithPopup(auth, provider);
+                // onAuthStateChanged will handle subsequent profile checks
+                console.log("[Auth] User signed in with Google.");
+            } catch (error) {
+                console.error("[Auth ERROR] Google Sign-In error:", error);
+                if (error.code === 'auth/popup-closed-by-user') {
+                    loginErrorDisplay.textContent = 'تم إغلاق نافذة تسجيل الدخول من قبل المستخدم.';
+                } else {
+                    loginErrorDisplay.textContent = `${getTranslation('googleSignIn')} فشل: ${error.message}`;
+                }
+            }
+        }
+
+        async function handleLogout() {
+            if (!auth) return;
+            try {
+                await signOut(auth);
+                console.log("[Auth] User signed out.");
+                displayAlert('تم تسجيل الخروج بنجاح.');
+                // onAuthStateChanged will handle showing the modal again
+            } catch (error) {
+                console.error("[Auth ERROR] Logout error:", error);
+                displayAlert(`فشل تسجيل الخروج: ${error.message}`);
+            }
+        }
+
+        // --- Event Listeners ---
+        function initEventListeners() {
+            showLoginBtn.addEventListener('click', () => showForm('loginForm'));
+            showSignupBtn.addEventListener('click', () => showForm('signupForm'));
+
+            loginBtn.addEventListener('click', handleEmailLogin);
+            signupBtn.addEventListener('click', handleEmailSignUp);
+            googleSignInBtn.addEventListener('click', handleGoogleSignIn);
+            saveUsernameBtn.addEventListener('click', saveUsername);
+            logoutBtn.addEventListener('click', handleLogout);
+
+            // Enable buttons when inputs are not empty (basic validation)
+            loginEmailInput.addEventListener('input', () => loginBtn.disabled = !(loginEmailInput.value && loginPasswordInput.value));
+            loginPasswordInput.addEventListener('input', () => loginBtn.disabled = !(loginEmailInput.value && loginPasswordInput.value));
+
+            signupUsernameInput.addEventListener('input', () => signupBtn.disabled = !(signupUsernameInput.value && signupEmailInput.value && signupPasswordInput.value && signupPasswordInput.value.length >= 6));
+            signupEmailInput.addEventListener('input', () => signupBtn.disabled = !(signupUsernameInput.value && signupEmailInput.value && signupPasswordInput.value && signupPasswordInput.value.length >= 6));
+            signupPasswordInput.addEventListener('input', () => signupBtn.disabled = !(signupUsernameInput.value && signupEmailInput.value && signupPasswordInput.value && signupPasswordInput.value.length >= 6));
+
+            setupUsernameInput.addEventListener('input', () => saveUsernameBtn.disabled = !setupUsernameInput.value.trim());
+
+            // Handle Enter key for forms
+            loginEmailInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleEmailLogin(); });
+            loginPasswordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleEmailLogin(); });
+            signupUsernameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleEmailSignUp(); });
+            signupEmailInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleEmailSignUp(); });
+            signupPasswordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleEmailSignUp(); });
+            setupUsernameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') saveUsername(); });
+        }
+
+        // --- Initial Setup on DOM Ready ---
         document.addEventListener('DOMContentLoaded', async () => {
-            console.log("DOMContentLoaded event fired.");
+            console.log("DOMContentLoaded event fired. Initializing...");
 
-            const loginForm = document.getElementById('loginForm');
-            const signupForm = document.getElementById('signupForm');
-            const showLoginBtn = document.getElementById('showLoginBtn');
-            const showSignupBtn = document.getElementById('showSignupBtn');
-            const loginBtn = document.getElementById('loginBtn');
-            const signupBtn = document.getElementById('signupBtn');
-            const googleSignInBtn = document.getElementById('googleSignInBtn');
-
-            // Set initial language to Arabic and update text content
-            document.body.dir = 'rtl';
+            // Set initial language and UI texts
+            document.body.dir = (currentLanguage === 'ar') ? 'rtl' : 'ltr';
             showLoginBtn.textContent = getTranslation('login');
             showSignupBtn.textContent = getTranslation('signup');
-            document.getElementById('loginTitle').textContent = getTranslation('login');
-            document.getElementById('signupTitle').textContent = getTranslation('signup');
-            document.getElementById('loginEmail').placeholder = getTranslation('email');
-            document.getElementById('loginPassword').placeholder = getTranslation('password');
-            document.getElementById('signupUsername').placeholder = getTranslation('username');
-            document.getElementById('signupEmail').placeholder = getTranslation('email');
-            document.getElementById('signupPassword').placeholder = getTranslation('password');
+            document.querySelector('#loginForm h3').textContent = getTranslation('login');
+            document.querySelector('#signupForm h3').textContent = getTranslation('signup');
+            document.querySelector('#usernameSetupForm h3').textContent = getTranslation('profileComplete');
+            document.querySelector('#usernameSetupForm p').textContent = getTranslation('chooseUsername');
+
+            loginEmailInput.placeholder = getTranslation('email');
+            loginPasswordInput.placeholder = getTranslation('password');
+            signupUsernameInput.placeholder = getTranslation('username');
+            signupEmailInput.placeholder = getTranslation('email');
+            signupPasswordInput.placeholder = getTranslation('password');
+            setupUsernameInput.placeholder = getTranslation('username');
+
             loginBtn.textContent = getTranslation('login');
             signupBtn.textContent = getTranslation('signup');
+            saveUsernameBtn.textContent = "حفظ اسم المستخدم"; // Hardcoded for now
             googleSignInBtn.querySelector('span').textContent = getTranslation('googleSignIn');
+            logoutBtn.textContent = getTranslation('logout');
 
 
-            // Ensure only the login modal is visible
-            document.getElementById('loginSignupModal').classList.remove('hidden');
-            document.getElementById('lobbyPage').classList.add('hidden');
-            document.getElementById('gamePage').classList.add('hidden');
-
-            // Default to login form visible
-            loginForm.classList.remove('hidden');
-            signupForm.classList.add('hidden');
-            showLoginBtn.classList.add('active');
-            showSignupBtn.classList.remove('active');
-
-
+            // Initialize Firebase and set up event listeners
             await setupFirebase();
+            initEventListeners();
 
-            // Login/Signup form toggling
-            if (showLoginBtn && showSignupBtn && loginForm && signupForm) {
-                showLoginBtn.addEventListener('click', () => {
-                    loginForm.classList.remove('hidden');
-                    signupForm.classList.add('hidden');
-                    showLoginBtn.classList.add('active');
-                    showSignupBtn.classList.remove('active');
-                    document.getElementById('loginSignupError').textContent = '';
-                    document.getElementById('signupError').textContent = '';
-                });
-                showSignupBtn.addEventListener('click', () => {
-                    signupForm.classList.remove('hidden');
-                    loginForm.classList.add('hidden');
-                    showSignupBtn.classList.add('active');
-                    showLoginBtn.classList.remove('active');
-                    document.getElementById('loginSignupError').textContent = '';
-                    document.getElementById('signupError').textContent = '';
-                });
-            }
-
-            // Login/Signup button listeners
-            if (loginBtn) {
-                loginBtn.addEventListener('click', handleLogin);
-                document.getElementById('loginEmail').addEventListener('keypress', (event) => {
-                    if (event.key === 'Enter') handleLogin();
-                });
-                document.getElementById('loginPassword').addEventListener('keypress', (event) => {
-                    if (event.key === 'Enter') handleLogin();
-                });
-            }
-            if (signupBtn) {
-                signupBtn.addEventListener('click', handleSignUp);
-                document.getElementById('signupUsername').addEventListener('keypress', (event) => {
-                    if (event.key === 'Enter') handleSignUp();
-                });
-                document.getElementById('signupEmail').addEventListener('keypress', (event) => {
-                    if (event.key === 'Enter') handleSignUp();
-                });
-                document.getElementById('signupPassword').addEventListener('keypress', (event) => {
-                    if (event.key === 'Enter') handleSignUp();
-                });
-            }
-
-            // Google Sign-In button listener
-            if (googleSignInBtn) {
-                googleSignInBtn.addEventListener('click', signInWithGoogle);
-            }
+            // Set initial button states (disabled until Firebase Auth state is checked)
+            setButtonsEnabled(false);
+            // Initially show only the auth modal (hidden by default)
+            showAuthModal();
+            showForm('loginForm');
         });
     </script>
 </body>
