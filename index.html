@@ -1412,8 +1412,8 @@
                 tradeError: "خطأ: لم يتم العثور على المرسل أو المستلم للصفقة.",
                 senderInsufficientMoney: (senderName) => `ليس لدى ${senderName} ما يكفي من المال لإتمام هذه الصفقة.`,
                 recipientInsufficientMoney: (recipientName) => `ليس لدى ${recipientName} ما يكفي من المال لإتمام هذه الصفقة.`,
-                senderMissingProps: (senderName) => `لم يعد ${senderName} يملك بعض الممتلكات التي يعرضها.`,
-                recipientMissingProps: (recipientName) => `لم يعد ${recipientName} يملك بعض الممتلكات المطلوبة منهم.`,
+                senderMissingProps: (senderName) => `${senderName} لم يعد يملك بعض الممتلكات التي يعرضها.`,
+                recipientMissingProps: (recipientName) => `${recipientName} لم يعد يملك بعض الممتلكات المطلوبة منهم.`,
                 tradeAccepted: (senderName, recipientName) => `تم قبول الصفقة بين ${senderName} و ${recipientName}!`,
                 tradeDeclined: (senderName, recipientName) => `تم رفض عرض التبادل من ${senderName} إلى ${recipientName}.`,
                 tradeCancelled: (senderName, recipientName) => `تم إلغاء عرض التبادل من ${senderName} إلى ${recipientName}.`,
@@ -3561,7 +3561,6 @@
 
         /**
          * Kicks a player from the lobby by the leader.
-         * @param {string} playerUserIdToKick - The userId of the player to be kicked.
          */
         function kickPlayerFromLobby(playerUserIdToKick) {
             const leaderPlayer = gameState.players.find(p => p.userId === gameState.leaderId);
@@ -3802,6 +3801,7 @@
         }
 
         async function saveUsername() {
+            console.log("[Username] Attempting to save username...");
             const usernameInput = document.getElementById('usernameInput');
             const usernameError = document.getElementById('usernameError');
             const username = usernameInput.value.trim();
@@ -3812,6 +3812,7 @@
             const usernameRegex = /^[a-z0-9_]{3,15}$/;
             if (!usernameRegex.test(username)) {
                 usernameError.textContent = getTranslation('usernameInvalid');
+                console.warn(`[Username] Username validation failed: "${username}" does not match regex.`);
                 return;
             }
 
@@ -3829,10 +3830,12 @@
 
                 if (!querySnapshot.empty) {
                     usernameError.textContent = getTranslation('usernameTaken');
+                    console.warn(`[Username] Username "${username}" already taken.`);
                     return;
                 }
 
                 // Save username to Firestore
+                console.log(`[Username] Saving username "${username}" to Firestore for user ${currentUserId}...`);
                 const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
                 await setDoc(userDocRef, { username: username, language: gameState.currentLanguage }, { merge: true });
                 currentUsername = username;
@@ -3840,7 +3843,7 @@
                 document.getElementById('usernameModal').classList.add('hidden');
                 document.getElementById('lobbyPage').classList.remove('hidden'); // Show lobby after saving username
                 updateAllTextContent(); // Update UI with new username
-                console.log(`[Username] Username "${username}" saved for user ${currentUserId}.`);
+                console.log(`[Username] Username "${username}" saved successfully for user ${currentUserId}.`);
 
                 // If no game is active, create a default lobby for the user
                 if (!gameState.partyCode) {
@@ -3854,6 +3857,7 @@
                 console.error("Error saving username:", error);
                 usernameError.textContent = `Error: ${error.message}`;
             }
+            console.log("[Username] saveUsername function finished.");
         }
 
         // --- Lobby Management with Firestore ---
