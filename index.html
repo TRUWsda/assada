@@ -1742,7 +1742,7 @@
             const companyEmojis = {
                 "Water": "💧",
                 "Electricity": "⚡",
-                "Internet": "�",
+                "Internet": "🌐",
                 "Airport": "✈️"
             };
             return companyEmojis[companyName] || ''; // Return emoji or empty string if not found
@@ -2990,6 +2990,12 @@
          * Sends the trade offer based on the values in the trade creation modal.
          */
         async function sendTradeOffer() {
+            if (!auth || !db) { // Added check
+                alert("Authentication system not ready. Cannot send trade offer.");
+                console.error("[Trade] Firebase Auth or DB not initialized. Cannot send trade offer.");
+                return;
+            }
+
             const senderPlayer = gameState.players.find(p => p.userId === currentUserId); // The current user is the sender
             const recipientId = document.getElementById('tradeRecipient').value;
             const offeredMoney = parseInt(document.getElementById('offerMoney').value);
@@ -3795,10 +3801,11 @@
                 }
                 console.log("[Firebase] firebaseConfig:", firebaseConfig); // Log firebaseConfig for debugging
 
-                app = initializeApp(firebaseConfig);
+                app = initializeApp(firebase(Config));
+                console.log("[Firebase] Firebase app initialized:", app); // Added log
                 db = getFirestore(app);
                 auth = getAuth(app);
-                console.log("[Firebase] Firebase app, db, and auth initialized.");
+                console.log("[Firebase] Firebase db and auth initialized."); // Modified log
 
                 // Listen for auth state changes
                 onAuthStateChanged(auth, async (user) => {
@@ -3838,6 +3845,12 @@
 
         // --- Authentication Functions ---
         async function handleSignUp() {
+            if (!auth || !db) { // Added check
+                console.error("[Auth] Firebase Auth or DB not initialized. Cannot sign up.");
+                document.getElementById('signupError').textContent = "Authentication system not ready. Please try again.";
+                return;
+            }
+
             const usernameInput = document.getElementById('signupUsername');
             const emailInput = document.getElementById('signupEmail');
             const passwordInput = document.getElementById('signupPassword');
@@ -3906,6 +3919,12 @@
         }
 
         async function handleLogin() {
+            if (!auth || !db) { // Added check
+                console.error("[Auth] Firebase Auth or DB not initialized. Cannot log in.");
+                document.getElementById('loginSignupError').textContent = "Authentication system not ready. Please try again.";
+                return;
+            }
+
             const emailInput = document.getElementById('loginEmail');
             const passwordInput = document.getElementById('loginPassword');
             const errorDisplay = document.getElementById('loginSignupError'); // Use the shared error display for login
@@ -3931,6 +3950,13 @@
         }
 
         async function signInWithGoogle() {
+            if (!auth || !db) { // Added check
+                console.error("[Auth] Firebase Auth or DB not initialized. Cannot sign in with Google.");
+                const errorDisplay = document.getElementById('loginSignupError');
+                errorDisplay.textContent = "Authentication system not ready. Please try again.";
+                return;
+            }
+
             const provider = new GoogleAuthProvider();
             try {
                 const result = await signInWithPopup(auth, provider);
