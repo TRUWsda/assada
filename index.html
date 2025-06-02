@@ -787,35 +787,6 @@
             color: #909090;
         }
 
-        /* Username Modal Styles */
-        #usernameModal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 100;
-        }
-        #usernameModalContent {
-            background-color: #22223b;
-            padding: 2rem;
-            border-radius: 0.75rem;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            width: 90%;
-            max-width: 400px;
-            text-align: center;
-        }
-        #usernameError {
-            color: #fca5a5;
-            font-size: 0.85rem;
-            margin-top: 0.5rem;
-            min-height: 1.2rem; /* Reserve space to prevent layout shift */
-        }
-
         /* Login/Signup Modal Styles */
         #loginSignupModal {
             position: fixed;
@@ -896,16 +867,6 @@
                     <i class="fab fa-google"></i> <span id="googleSignInText">Sign in with Google</span>
                 </button>
             </div>
-        </div>
-    </div>
-
-    <div id="usernameModal" class="hidden">
-        <div id="usernameModalContent">
-            <h3 class="text-xl font-bold mb-4" id="usernameModalTitle">Choose Your Username</h3>
-            <p class="text-gray-300 mb-4" id="usernameModalDescription">This will be your unique name in the game. Only lowercase letters, numbers, and underscores are allowed.</p>
-            <input type="text" id="usernameInput" class="input-field w-full mb-2" placeholder="Enter username" maxlength="15">
-            <p id="usernameError" class="text-red-400 text-sm mb-4"></p>
-            <button id="saveUsernameBtn" class="btn-primary py-2 px-6 rounded-md w-full">Save Username</button>
         </div>
     </div>
 
@@ -1372,9 +1333,6 @@
                 leader: "Leader",
                 playerKicked: (playerName) => `${playerName} has been kicked from the lobby.`,
                 onlyLeaderCanKick: "Only the party leader can kick players.",
-                usernameModalTitle: "Choose Your Username",
-                usernameModalDescription: "This will be your unique name in the game. Only lowercase letters, numbers, and underscores are allowed.",
-                saveUsername: "Save Username",
                 usernameInvalid: "Username must be lowercase, alphanumeric with underscores, and between 3-15 characters.",
                 usernameTaken: "This username is already taken. Please choose another.",
                 usernameSaved: (username) => `Username "${username}" saved successfully!`,
@@ -1408,7 +1366,8 @@
                 signupError: "Sign up failed. Please try again with a different email.",
                 invalidEmail: "Invalid email address.",
                 passwordTooShort: "Password must be at least 6 characters long.",
-                googleSignIn: "Sign in with Google"
+                googleSignIn: "Sign in with Google",
+                usernameRequired: "Username is required."
             },
             ar: {
                 back: "العودة",
@@ -1534,9 +1493,6 @@
                 leader: "القائد",
                 playerKicked: (playerName) => `${playerName} تم طرده من الردهة.`,
                 onlyLeaderCanKick: "فقط قائد الحفلة يمكنه طرد اللاعبين.",
-                usernameModalTitle: "اختر اسم المستخدم الخاص بك",
-                usernameModalDescription: "سيكون هذا اسمك الفريد في اللعبة. يُسمح فقط بالأحرف الصغيرة والأرقام والشرطات السفلية.",
-                saveUsername: "حفظ اسم المستخدم",
                 usernameInvalid: "يجب أن يكون اسم المستخدم أحرفًا صغيرة وأرقامًا وشرطات سفلية، ويتراوح طوله بين 3-15 حرفًا.",
                 usernameTaken: "اسم المستخدم هذا مستخدم بالفعل. الرجاء اختيار اسم آخر.",
                 usernameSaved: (username) => `تم حفظ اسم المستخدم "${username}" بنجاح!`,
@@ -1570,7 +1526,8 @@
                 signupError: "فشل إنشاء الحساب. الرجاء المحاولة مرة أخرى ببريد إلكتروني مختلف.",
                 invalidEmail: "عنوان بريد إلكتروني غير صالح.",
                 passwordTooShort: "يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.",
-                googleSignIn: "تسجيل الدخول باستخدام جوجل"
+                googleSignIn: "تسجيل الدخول باستخدام جوجل",
+                usernameRequired: "اسم المستخدم مطلوب."
             }
         };
 
@@ -1675,11 +1632,6 @@
             document.getElementById('langOptionAr').textContent = getTranslation('arabic');
             document.getElementById('applyButtonText').textContent = getTranslation('apply');
             document.getElementById('closeButtonText').textContent = getTranslation('close');
-
-            // Username modal
-            document.getElementById('usernameModalTitle').textContent = getTranslation('usernameModalTitle');
-            document.getElementById('usernameModalDescription').textContent = getTranslation('usernameModalDescription');
-            document.getElementById('saveUsernameBtn').textContent = getTranslation('saveUsername');
 
             // Login/Signup modal
             document.getElementById('loginTitle').textContent = getTranslation('login');
@@ -1790,7 +1742,7 @@
             const companyEmojis = {
                 "Water": "💧",
                 "Electricity": "⚡",
-                "Internet": "🌐",
+                "Internet": "�",
                 "Airport": "✈️"
             };
             return companyEmojis[companyName] || ''; // Return emoji or empty string if not found
@@ -3855,7 +3807,7 @@
                         document.getElementById('currentUserIdDisplay').textContent = currentUserId;
                         console.log(`[Firebase] User authenticated: ${currentUserId}`);
                         // After authentication, check and set username
-                        await checkAndSetUsername();
+                        await checkUserProfile();
                     } else {
                         currentUserId = null;
                         currentUsername = null;
@@ -3897,6 +3849,10 @@
 
             errorDisplay.textContent = ''; // Clear previous errors
 
+            if (!username) {
+                errorDisplay.textContent = getTranslation('usernameRequired');
+                return;
+            }
             // Validate username format
             const usernameRegex = /^[a-z0-9_]{3,15}$/;
             if (!usernameRegex.test(username)) {
@@ -3942,7 +3898,7 @@
 
                 console.log("[Auth] User signed up and profile created:", user.uid);
                 document.getElementById('loginSignupModal').classList.add('hidden');
-                // onAuthStateChanged will handle the next step (checkAndSetUsername, which will now find the username)
+                // onAuthStateChanged will handle the next step (checkUserProfile, which will now find the username)
             } catch (error) {
                 console.error("Signup error:", error);
                 errorDisplay.textContent = getTranslation('signupError');
@@ -3967,7 +3923,7 @@
                 const userCredential = await signInWithEmailAndPassword(auth, email, password);
                 console.log("[Auth] User logged in:", userCredential.user.uid);
                 document.getElementById('loginSignupModal').classList.add('hidden');
-                // onAuthStateChanged will handle the next step (checkAndSetUsername)
+                // onAuthStateChanged will handle the next step (checkUserProfile)
             } catch (error) {
                 console.error("Login error:", error);
                 errorDisplay.textContent = getTranslation('loginError'); // Generic error message
@@ -3982,8 +3938,8 @@
                 currentUserId = user.uid; // Ensure currentUserId is set
 
                 console.log("[Auth] Signed in with Google:", user.uid);
-                document.getElementById('loginSignupModal').classList.add('hidden');
-                // onAuthStateChanged will trigger checkAndSetUsername, which will handle username prompt if needed
+                // After Google sign-in, check user profile for username
+                await checkUserProfile();
             } catch (error) {
                 console.error("Google Sign-In error:", error);
                 const errorDisplay = document.getElementById('loginSignupError');
@@ -3992,10 +3948,10 @@
         }
 
 
-        // --- Username Management ---
-        async function checkAndSetUsername() {
+        // --- User Profile Management ---
+        async function checkUserProfile() {
             if (!currentUserId || !db) {
-                console.warn("[Username] Firebase DB not ready or user not authenticated. Cannot check username.");
+                console.warn("[Profile] Firebase DB not ready or user not authenticated. Cannot check user profile.");
                 return;
             }
 
@@ -4005,10 +3961,11 @@
                 if (userDocSnap.exists() && userDocSnap.data().username) {
                     currentUsername = userDocSnap.data().username;
                     gameState.currentLanguage = userDocSnap.data().language || 'en'; // Load language preference
-                    console.log(`[Username] User profile found. Username: ${currentUsername}, Language: ${gameState.currentLanguage}.`);
+                    console.log(`[Profile] User profile found. Username: ${currentUsername}, Language: ${gameState.currentLanguage}.`);
                     document.body.dir = (gameState.currentLanguage === 'ar') ? 'rtl' : 'ltr'; // Set initial direction
                     updateAllTextContent(); // Update UI with loaded language
-                    document.getElementById('lobbyPage').classList.remove('hidden'); // Show lobby if username exists
+                    document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup
+                    document.getElementById('lobbyPage').classList.remove('hidden'); // Show lobby
 
                     // If a party code is already set (e.g., from URL), try to join
                     if (gameState.partyCode) {
@@ -4019,77 +3976,29 @@
                     }
 
                 } else {
-                    // If user is authenticated but no username is set (e.g., new Google sign-in)
-                    console.log("[Username] User profile not found or username not set. Showing username modal.");
-                    document.getElementById('usernameModal').classList.remove('hidden');
-                    document.getElementById('loginSignupModal').classList.add('hidden'); // Ensure login/signup is hidden
+                    // If user is authenticated but no username is set (e.g., new Google sign-in or email/password without username)
+                    console.log("[Profile] User profile not found or username not set. Redirecting to signup form to set username.");
+                    document.getElementById('loginSignupModal').classList.remove('hidden');
+                    document.getElementById('loginForm').classList.add('hidden');
+                    document.getElementById('signupForm').classList.remove('hidden');
+                    document.getElementById('showLoginBtn').classList.remove('active');
+                    document.getElementById('showSignupBtn').classList.add('active');
+                    // Clear any previous error messages
+                    document.getElementById('loginSignupError').textContent = '';
+                    document.getElementById('signupError').textContent = '';
                 }
             } catch (error) {
                 console.error("Error fetching user profile:", error);
-                document.getElementById('usernameModal').classList.remove('hidden'); // Show modal on error
-                document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup modal
+                // If there's an error, assume profile is not set and prompt for signup/username
+                document.getElementById('loginSignupModal').classList.remove('hidden');
+                document.getElementById('loginForm').classList.add('hidden');
+                document.getElementById('signupForm').classList.remove('hidden');
+                document.getElementById('showLoginBtn').classList.remove('active');
+                document.getElementById('showSignupBtn').classList.add('active');
+                document.getElementById('loginSignupError').textContent = `Error loading profile: ${error.message}`;
             }
         }
 
-        async function saveUsername() {
-            console.log("[Username] Attempting to save username...");
-            const usernameInput = document.getElementById('usernameInput');
-            const usernameError = document.getElementById('usernameError');
-            const username = usernameInput.value.trim();
-
-            usernameError.textContent = ''; // Clear previous errors
-
-            // Validate username format
-            const usernameRegex = /^[a-z0-9_]{3,15}$/;
-            if (!usernameRegex.test(username)) {
-                usernameError.textContent = getTranslation('usernameInvalid');
-                console.warn(`[Username] Username validation failed: "${username}" does not match regex.`);
-                return;
-            }
-
-            if (!db || !currentUserId) { // Ensure currentUserId is available
-                console.error("[Username] Firestore DB not initialized or user not authenticated. Cannot save username.");
-                alert("Database not ready or user not authenticated. Please try again.");
-                return;
-            }
-
-            // Check if username is unique
-            try {
-                const usersCollectionRef = collection(db, `artifacts/${appId}/users`);
-                const q = query(usersCollectionRef, where("profile.data.username", "==", username));
-                const querySnapshot = await getDocs(q);
-
-                if (!querySnapshot.empty) {
-                    usernameError.textContent = getTranslation('usernameTaken');
-                    console.warn(`[Username] Username "${username}" already taken.`);
-                    return;
-                }
-
-                // Save username to Firestore
-                console.log(`[Username] Saving username "${username}" to Firestore for user ${currentUserId}...`);
-                const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
-                await setDoc(userDocRef, { username: username, language: gameState.currentLanguage }, { merge: true });
-                currentUsername = username;
-                alert(getTranslation('usernameSaved', username));
-                document.getElementById('usernameModal').classList.add('hidden');
-                document.getElementById('lobbyPage').classList.remove('hidden'); // Show lobby after saving username
-                updateAllTextContent(); // Update UI with new username
-                console.log(`[Username] Username "${username}" saved successfully for user ${currentUserId}.`);
-
-                // If no game is active, create a default lobby for the user
-                if (!gameState.partyCode) {
-                    await createLobby();
-                } else {
-                    // If a party code is already set (e.g., from URL), try to join
-                    await joinLobby(gameState.partyCode);
-                }
-
-            } catch (error) {
-                console.error("Error saving username:", error);
-                usernameError.textContent = `Error: ${error.message}`;
-            }
-            console.log("[Username] saveUsername function finished.");
-        }
 
         // --- Lobby Management with Firestore ---
         async function createLobby() {
@@ -4311,7 +4220,6 @@
                         document.getElementById('lobbyPage').classList.remove('hidden');
                         document.getElementById('gamePage').classList.add('hidden');
                         document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup
-                        document.getElementById('usernameModal').classList.add('hidden'); // Hide username modal
                         updateLobbyPlayerCards();
                         // Update current player's money display in lobby header
                         const currentPlayerInLobby = gameState.players.find(p => p.userId === currentUserId);
@@ -4322,7 +4230,6 @@
                         document.getElementById('lobbyPage').classList.add('hidden');
                         document.getElementById('gamePage').classList.remove('hidden');
                         document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup
-                        document.getElementById('usernameModal').classList.add('hidden'); // Hide username modal
                         populateBoard(); // Re-render board with latest property owners/levels
                         addPlayerTokens(); // Re-add tokens to ensure correct positions
                         updatePlayersList();
@@ -4416,8 +4323,6 @@
                 const settingsBtn = document.getElementById('settingsBtn');
                 const applySettingsBtn = document.getElementById('applySettingsBtn');
                 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
-                const saveUsernameBtn = document.getElementById('saveUsernameBtn');
-                const usernameInput = document.getElementById('usernameInput');
                 const createJoinPartyBtn = document.getElementById('createJoinPartyBtn');
                 const partyCodeInput = document.getElementById('partyCodeInput');
                 const backButton = document.querySelector('.lobby-header .left-section button'); // Back button in lobby
@@ -4439,7 +4344,6 @@
                 // Hide all main pages initially, Firebase setup will decide what to show
                 lobbyPage.classList.add('hidden');
                 gamePage.classList.add('hidden');
-                document.getElementById('usernameModal').classList.add('hidden');
                 document.getElementById('loginSignupModal').classList.add('hidden'); // Initially hidden, will be shown by setupFirebase if needed
 
                 await setupFirebase(); // Initialize Firebase and handle auth/username
@@ -4552,16 +4456,6 @@
                 }
                 if (closeSettingsBtn) {
                     closeSettingsBtn.addEventListener('click', closeSettingsModal);
-                }
-
-                // Username modal listeners
-                if (saveUsernameBtn) {
-                    saveUsernameBtn.addEventListener('click', saveUsername);
-                    usernameInput.addEventListener('keypress', (event) => {
-                        if (event.key === 'Enter') {
-                            saveUsername();
-                        }
-                    });
                 }
 
                 // Login/Signup form toggling
