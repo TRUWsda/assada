@@ -159,7 +159,9 @@
 
         // Global app ID from environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'game-1-b46e1';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        // firebaseConfig is now initialized as an empty object and populated within setupFirebase
+        const firebaseConfig = {}; // Initialize as empty object
+
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         // Translation dictionary (simplified for this context)
@@ -239,22 +241,39 @@
         // --- Firebase Integration ---
         async function setupFirebase() {
             console.log("[Firebase] Initializing Firebase...");
+            console.log("[Firebase] Raw __firebase_config:", typeof __firebase_config, __firebase_config); // Log raw value
+
             try {
-                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-                    console.error("[Firebase] firebaseConfig is missing or empty. Please ensure __firebase_config is provided.");
-                    alert("Firebase configuration is missing. The app cannot connect to the database.");
+                // Ensure firebaseConfig is a valid object, even if empty, to prevent JSON.parse errors
+                const configString = typeof __firebase_config === 'string' && __firebase_config.trim() !== '' ? __firebase_config : '{}';
+                let parsedConfig;
+                try {
+                    parsedConfig = JSON.parse(configString);
+                } catch (e) {
+                    console.error("[Firebase] Error parsing __firebase_config:", e);
+                    alert("خطأ في تهيئة Firebase: فشل في تحليل إعدادات المشروع. يرجى التحقق من تنسيق __firebase_config.");
                     return;
                 }
-                console.log("[Firebase] firebaseConfig:", firebaseConfig);
+
+                if (!parsedConfig || Object.keys(parsedConfig).length === 0) {
+                    console.error("[Firebase] firebaseConfig is missing or empty. This usually means the Firebase project is not correctly linked to this Canvas environment.");
+                    alert("خطأ في تهيئة Firebase: إعدادات مشروع Firebase مفقودة أو فارغة. يرجى التأكد من ربط مشروع Firebase الخاص بك بشكل صحيح ببيئة Canvas.");
+                    return;
+                }
+
+                // Assign to global firebaseConfig only if valid
+                Object.assign(firebaseConfig, parsedConfig); // Update the global firebaseConfig object
+
+                console.log("[Firebase] Final firebaseConfig used:", firebaseConfig);
                 console.log("[Firebase] Using appId:", appId);
                 console.log("[Firebase] initialAuthToken:", initialAuthToken);
 
                 app = initializeApp(firebaseConfig);
-                console.log("[Firebase] Firebase app initialized. App object:", app); // Added log
+                console.log("[Firebase] Firebase app initialized. App object:", app);
                 db = getFirestore(app);
-                console.log("[Firebase] Firestore initialized. DB object:", db); // Added log
+                console.log("[Firebase] Firestore initialized. DB object:", db);
                 auth = getAuth(app);
-                console.log("[Firebase] Auth initialized. Auth object:", auth); // Added log
+                console.log("[Firebase] Auth initialized. Auth object:", auth);
 
                 let authReady = false; // Flag to ensure buttons are enabled only once initially
 
@@ -284,12 +303,11 @@
                     console.log("[Firebase] Signed in with custom token.");
                 } else {
                     console.log("[Firebase] No custom token. Awaiting user authentication via login/signup.");
-                    // The modal is handled by onAuthStateChanged if no user is found
                 }
 
             } catch (error) {
                 console.error("Error setting up Firebase:", error);
-                alert(`Failed to connect to Firebase: ${error.message}. Check your Firebase project setup.`);
+                alert(`خطأ في تهيئة Firebase: ${error.message}. يرجى التحقق من إعداد مشروع Firebase الخاص بك.`);
             }
         }
 
