@@ -980,7 +980,7 @@
                     <p class="text-sm text-gray-400 mb-3" id="useCreateText">
                         Use the "Create" button to initiate a new trade.
                     </p>
-                    <button class="btn-primary w-full py-2 rounded-md" onclick="openTradeCreationModal(gameState.players[gameState.currentPlayerIndex].id)"><i class="fas fa-plus mr-2"></i> <span id="createButtonText">Create</span></button>
+                    <button class="btn-primary w-full py-2 rounded-md" onclick="openTradeCreationModal('${currentUserId}')"><i class="fas fa-plus mr-2"></i> <span id="createButtonText">Create</span></button>
                 </div>
 
                 <div class="bg-[#22223b] p-4 rounded-lg shadow-md">
@@ -3525,9 +3525,15 @@
         async function addAIPlayerToLobby() {
             if (gameState.players.length >= MAX_PLAYERS) {
                 alert(getTranslation("maxPlayersReached"));
-                console.warn(`[Lobby Debug] ${Date.now()}: Cannot add player, max players reached.`);
+                console.warn(`[Lobby] ${Date.now()}: Cannot add player, max players reached.`);
                 return;
             }
+            if (!db) {
+                console.error("[Lobby] Firestore DB not initialized. Cannot add AI player.");
+                alert("Database not ready. Please try again.");
+                return;
+            }
+
 
             const newPlayerId = gameState.players.length + 1;
             const playerColors = ['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF4500']; // Red, Blue, Green, Yellow, OrangeRed
@@ -3539,19 +3545,18 @@
                 money: gameState.STARTING_MONEY,
                 positionIndex: 0,
                 color: newPlayerColor,
-                country: 'Unknown', // Placeholder country for AI
                 isAI: true
             };
 
             gameState.players.push(newPlayer);
             if (gameState.leaderId === null) {
                 gameState.leaderId = currentUserId; // Human player is always the leader if they are the first
-                console.log(`[Lobby Debug] ${Date.now()}: New leader set: ${currentUsername} (ID: ${currentUserId}).`);
+                console.log(`[Lobby] ${Date.now()}: New leader set: ${currentUsername} (ID: ${currentUserId}).`);
             }
             await updateGameInFirestore(); // Update Firestore
             updateLobbyPlayerCards(); // Re-render lobby cards
             document.getElementById('lobbyPlayButton').disabled = false; // Enable play button
-            console.log(`[Lobby Debug] ${Date.now()}: Added new AI Player ${newPlayerId}. Total players: ${gameState.players.length}.`);
+            console.log(`[Lobby] ${Date.now()}: Added new AI Player ${newPlayerId}. Total players: ${gameState.players.length}.`);
         }
 
         /**
@@ -3562,13 +3567,13 @@
             const leaderPlayer = gameState.players.find(p => p.userId === gameState.leaderId);
             if (!leaderPlayer || leaderPlayer.userId !== currentUserId) { // Check if current user is the leader
                 alert(getTranslation('onlyLeaderCanKick'));
-                console.warn(`[Lobby Kick Debug] ${Date.now()}: Kick attempt failed. Current user is not the leader.`);
+                console.warn(`[Lobby Kick] ${Date.now()}: Kick attempt failed. Current user is not the leader.`);
                 return;
             }
 
             const playerToKick = gameState.players.find(p => p.userId === playerUserIdToKick);
             if (!playerToKick) {
-                console.warn(`[Lobby Kick Debug] ${Date.now()}: Attempted to kick non-existent player ID: ${playerUserIdToKick}.`);
+                console.warn(`[Lobby Kick] ${Date.now()}: Attempted to kick non-existent player ID: ${playerUserIdToKick}.`);
                 return;
             }
 
@@ -3591,7 +3596,7 @@
                 await updateGameInFirestore(); // Update Firestore
                 document.getElementById('custom-alert').remove();
                 alert(getTranslation('playerKicked', playerToKick.name));
-                console.log(`[Lobby Kick Debug] ${Date.now()}: Player ${playerToKick.name} (ID: ${playerToKick.userId}) kicked from lobby.`);
+                console.log(`[Lobby Kick] ${Date.now()}: Player ${playerToKick.name} (ID: ${playerToKick.userId}) kicked from lobby.`);
                 // Disable play button if no players left (should be handled by Firestore update)
             };
 
@@ -3600,7 +3605,7 @@
             cancelButton.className = 'bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500';
             cancelButton.onclick = () => {
                 document.getElementById('custom-alert').remove();
-                console.log(`[Lobby Kick Debug] ${Date.now()}: Kick action cancelled for player ID: ${playerUserIdToKick}.`);
+                console.log(`[Lobby Kick] ${Date.now()}: Kick action cancelled for player ID: ${playerUserIdToKick}.`);
             };
 
             okButton.replaceWith(confirmButton, cancelButton);
@@ -3662,7 +3667,7 @@
             // Update the lobby player count display
             document.getElementById('lobbyPlayerCount').textContent = `${gameState.players.length}/${MAX_PLAYERS}`;
             document.getElementById('onlinePlayersTitle').innerHTML = `${getTranslation('online')} <span class="text-green-400">(${gameState.players.length})</span>`;
-            console.log(`[Lobby Debug] ${Date.now()}: Lobby player cards updated. Current count: ${gameState.players.length}/${MAX_PLAYERS}.`);
+            console.log(`[Lobby] ${Date.now()}: Lobby player cards updated. Current count: ${gameState.players.length}/${MAX_PLAYERS}.`);
 
             // Enable/disable play button based on player count and leader status
             const lobbyPlayButton = document.getElementById('lobbyPlayButton');
@@ -3679,7 +3684,7 @@
             const languageSelect = document.getElementById('languageSelect');
             languageSelect.value = gameState.currentLanguage; // Set dropdown to current language
             settingsModal.classList.remove('hidden');
-            console.log(`[Settings Debug] ${Date.now()}: Settings modal opened. Current language: ${gameState.currentLanguage}.`);
+            console.log(`[Settings] ${Date.now()}: Settings modal opened. Current language: ${gameState.currentLanguage}.`);
         }
 
         async function applySettings() {
@@ -3687,9 +3692,10 @@
             const selectedLanguage = languageSelect.value;
             if (gameState.currentLanguage !== selectedLanguage) {
                 gameState.currentLanguage = selectedLanguage;
+                document.body.dir = (gameState.currentLanguage === 'ar') ? 'rtl' : 'ltr'; // Set direction immediately
                 updateAllTextContent(); // Re-render all text content with new language
                 populateBoard(); // Re-populate board to update city names
-                console.log(`[Settings Debug] ${Date.now()}: Language set to: ${selectedLanguage}.`);
+                console.log(`[Settings] ${Date.now()}: Language set to: ${selectedLanguage}.`);
 
                 // Update user's language preference in Firestore
                 if (currentUserId && db) {
@@ -3708,16 +3714,24 @@
         function closeSettingsModal() {
             const settingsModal = document.getElementById('settingsModal');
             settingsModal.classList.add('hidden');
-            console.log(`[Settings Debug] ${Date.now()}: Settings modal closed.`);
+            console.log(`[Settings] ${Date.now()}: Settings modal closed.`);
         }
 
         // --- Firebase Integration ---
         async function setupFirebase() {
             console.log("[Firebase] Initializing Firebase...");
             try {
+                // Check if firebaseConfig is valid
+                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+                    console.error("[Firebase] firebaseConfig is missing or empty. Please ensure __firebase_config is provided.");
+                    alert("Firebase configuration is missing. The app cannot connect to the database.");
+                    return; // Stop initialization
+                }
+
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
+                console.log("[Firebase] Firebase app, db, and auth initialized.");
 
                 // Sign in with custom token if available, otherwise anonymously
                 if (initialAuthToken) {
@@ -3746,13 +3760,14 @@
             } catch (error) {
                 console.error("Error setting up Firebase:", error);
                 document.getElementById('currentUserIdDisplay').textContent = `Error: ${error.message}`;
+                alert(`Failed to connect to Firebase: ${error.message}. Check your Firebase project setup.`);
             }
         }
 
         // --- Username Management ---
         async function checkAndSetUsername() {
             if (!currentUserId || !db) {
-                console.warn("[Username] Firebase not ready or user not authenticated.");
+                console.warn("[Username] Firebase DB not ready or user not authenticated. Cannot check username.");
                 return;
             }
 
@@ -3766,6 +3781,15 @@
                     document.body.dir = (gameState.currentLanguage === 'ar') ? 'rtl' : 'ltr'; // Set initial direction
                     updateAllTextContent(); // Update UI with loaded language
                     document.getElementById('lobbyPage').classList.remove('hidden'); // Show lobby if username exists
+
+                    // If a party code is already set (e.g., from URL), try to join
+                    if (gameState.partyCode) {
+                        await joinLobby(gameState.partyCode);
+                    } else {
+                        // If no party code, and user has username, create a default lobby
+                        await createLobby();
+                    }
+
                 } else {
                     console.log("[Username] User profile not found or username not set. Showing username modal.");
                     document.getElementById('usernameModal').classList.remove('hidden');
@@ -3787,6 +3811,12 @@
             const usernameRegex = /^[a-z0-9_]{3,15}$/;
             if (!usernameRegex.test(username)) {
                 usernameError.textContent = getTranslation('usernameInvalid');
+                return;
+            }
+
+            if (!db) {
+                console.error("[Username] Firestore DB not initialized. Cannot save username.");
+                alert("Database not ready. Please try again.");
                 return;
             }
 
@@ -3828,7 +3858,8 @@
         // --- Lobby Management with Firestore ---
         async function createLobby() {
             if (!db || !currentUserId || !currentUsername) {
-                console.error("[Lobby] Firebase not ready or user not authenticated for lobby creation.");
+                console.error("[Lobby] Firebase not ready or user not authenticated for lobby creation. DB:", db, "User ID:", currentUserId, "Username:", currentUsername);
+                alert("Cannot create lobby: Database not ready or user not authenticated.");
                 return;
             }
 
@@ -3897,7 +3928,8 @@
 
         async function joinLobby(code) {
             if (!db || !currentUserId || !currentUsername) {
-                console.error("[Lobby] Firebase not ready or user not authenticated for lobby join.");
+                console.error("[Lobby] Firebase not ready or user not authenticated for lobby join. DB:", db, "User ID:", currentUserId, "Username:", currentUsername);
+                alert("Cannot join lobby: Database not ready or user not authenticated.");
                 return;
             }
 
@@ -4018,6 +4050,10 @@
             if (gameUnsubscribe) {
                 gameUnsubscribe(); // Unsubscribe from previous game if any
             }
+            if (!db) {
+                console.error("[Firestore] Firestore DB not initialized. Cannot set up game listener.");
+                return;
+            }
             gameDocRef = doc(db, `artifacts/${appId}/public/data/games/${partyCode}`);
             gameUnsubscribe = onSnapshot(gameDocRef, (docSnap) => {
                 if (docSnap.exists()) {
@@ -4109,6 +4145,10 @@
                 console.error("[Firestore] No active game document reference to update.");
                 return;
             }
+            if (!db) {
+                console.error("[Firestore] Firestore DB not initialized. Cannot update game state.");
+                return;
+            }
             try {
                 // Remove functions before sending to Firestore
                 const stateToSave = { ...gameState };
@@ -4169,7 +4209,7 @@
                     lobbyPlayButton.addEventListener('click', async () => {
                         if (gameState.players.length === 0) {
                             alert(getTranslation("addAtLeastOnePlayer"));
-                            console.warn(`[Lobby Debug] ${Date.now()}: Play button clicked, but no players added.`);
+                            console.warn(`[Lobby] ${Date.now()}: Play button clicked, but no players added.`);
                             return;
                         }
                         if (currentUserId !== gameState.leaderId) {
@@ -4185,7 +4225,7 @@
                         gameState.gameStatus = 'in-game';
                         await updateGameInFirestore();
 
-                        console.log(`[Lobby Debug] ${Date.now()}: Lobby Play button clicked. Transitioning to game page with ${gameState.players.length} players.`);
+                        console.log(`[Lobby] ${Date.now()}: Lobby Play button clicked. Transitioning to game page with ${gameState.players.length} players.`);
                         // UI transition and game start logic will be handled by the Firestore listener
                     });
                     console.log("Lobby Play button event listener attached."); // Debug log
@@ -4223,7 +4263,7 @@
                             toggleDot.style.left = '3px'; /* Move to left */
                             this.nextElementSibling.style.backgroundColor = '#6b7280'; /* Gray when inactive */
                         }
-                        console.log(`[Lobby Debug] ${Date.now()}: Closed Party toggle changed to: ${this.checked}.`);
+                        console.log(`[Lobby] ${Date.now()}: Closed Party toggle changed to: ${this.checked}.`);
                     });
                 }
 
@@ -4241,11 +4281,11 @@
                         if (onlinePlayersSidebar.classList.contains('hidden-content')) {
                             icon.classList.remove('fa-eye');
                             icon.classList.add('fa-eye-slash'); // Corrected icon for hidden state
-                            console.log(`[Lobby Debug] ${Date.now()}: Online Players sidebar hidden.`);
+                            console.log(`[Lobby] ${Date.now()}: Online Players sidebar hidden.`);
                         } else {
                             icon.classList.remove('fa-eye-slash');
                             icon.classList.add('fa-eye');
-                            console.log(`[Lobby Debug] ${Date.now()}: Online Players sidebar shown.`);
+                            console.log(`[Lobby] ${Date.now()}: Online Players sidebar shown.`);
                         }
                     });
                 }
