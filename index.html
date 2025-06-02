@@ -815,9 +815,83 @@
             margin-top: 0.5rem;
             min-height: 1.2rem; /* Reserve space to prevent layout shift */
         }
+
+        /* Login/Signup Modal Styles */
+        #loginSignupModal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        #loginSignupModalContent {
+            background-color: #22223b;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        #loginSignupError {
+            color: #fca5a5;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            min-height: 1.2rem; /* Reserve space to prevent layout shift */
+        }
+        .form-toggle-buttons {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            gap: 1rem;
+        }
+        .form-toggle-buttons button {
+            padding: 0.5rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+        .form-toggle-buttons button.active {
+            background-color: #8a2be2;
+            color: white;
+        }
+        .form-toggle-buttons button:not(.active) {
+            background-color: #33334d;
+            color: #b0b0b0;
+        }
     </style>
 </head>
 <body dir="ltr">
+    <div id="loginSignupModal" class="hidden">
+        <div id="loginSignupModalContent">
+            <div class="form-toggle-buttons">
+                <button id="showLoginBtn" class="active" data-form="login">LOGIN</button>
+                <button id="showSignupBtn" data-form="signup">SIGN UP</button>
+            </div>
+
+            <div id="loginForm">
+                <h3 class="text-xl font-bold mb-4" id="loginTitle">Login</h3>
+                <input type="email" id="loginEmail" class="input-field w-full mb-3" placeholder="Email">
+                <input type="password" id="loginPassword" class="input-field w-full mb-3" placeholder="Password">
+                <p id="loginSignupError" class="text-red-400 text-sm mb-4"></p>
+                <button id="loginBtn" class="btn-primary py-2 px-6 rounded-md w-full">Login</button>
+            </div>
+
+            <div id="signupForm" class="hidden">
+                <h3 class="text-xl font-bold mb-4" id="signupTitle">Sign Up</h3>
+                <input type="email" id="signupEmail" class="input-field w-full mb-3" placeholder="Email">
+                <input type="password" id="signupPassword" class="input-field w-full mb-3" placeholder="Password">
+                <p id="signupError" class="text-red-400 text-sm mb-4"></p>
+                <button id="signupBtn" class="btn-primary py-2 px-6 rounded-md w-full">Sign Up</button>
+            </div>
+        </div>
+    </div>
+
     <div id="usernameModal" class="hidden">
         <div id="usernameModalContent">
             <h3 class="text-xl font-bold mb-4" id="usernameModalTitle">Choose Your Username</h3>
@@ -1124,7 +1198,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global Firebase variables
@@ -1317,7 +1391,15 @@
                 timeLeft: "Time Left",
                 modifyTradeOffer: "Modify Trade Offer",
                 playerMoneyDisplay: "Money",
-                playerCount: "Players"
+                playerCount: "Players",
+                login: "Login",
+                signup: "Sign Up",
+                email: "Email",
+                password: "Password",
+                loginError: "Login failed. Please check your email and password.",
+                signupError: "Sign up failed. Please try again with a different email.",
+                invalidEmail: "Invalid email address.",
+                passwordTooShort: "Password must be at least 6 characters long."
             },
             ar: {
                 back: "العودة",
@@ -1469,7 +1551,15 @@
                 timeLeft: "الوقت المتبقي",
                 modifyTradeOffer: "تعديل عرض التبادل",
                 playerMoneyDisplay: "المال",
-                playerCount: "اللاعبون"
+                playerCount: "اللاعبون",
+                login: "تسجيل الدخول",
+                signup: "إنشاء حساب",
+                email: "البريد الإلكتروني",
+                password: "كلمة المرور",
+                loginError: "فشل تسجيل الدخول. الرجاء التحقق من البريد الإلكتروني وكلمة المرور.",
+                signupError: "فشل إنشاء الحساب. الرجاء المحاولة مرة أخرى ببريد إلكتروني مختلف.",
+                invalidEmail: "عنوان بريد إلكتروني غير صالح.",
+                passwordTooShort: "يجب أن تتكون كلمة المرور من 6 أحرف على الأقل."
             }
         };
 
@@ -1579,6 +1669,18 @@
             document.getElementById('usernameModalTitle').textContent = getTranslation('usernameModalTitle');
             document.getElementById('usernameModalDescription').textContent = getTranslation('usernameModalDescription');
             document.getElementById('saveUsernameBtn').textContent = getTranslation('saveUsername');
+
+            // Login/Signup modal
+            document.getElementById('loginTitle').textContent = getTranslation('login');
+            document.getElementById('signupTitle').textContent = getTranslation('signup');
+            document.getElementById('loginEmail').placeholder = getTranslation('email');
+            document.getElementById('loginPassword').placeholder = getTranslation('password');
+            document.getElementById('signupEmail').placeholder = getTranslation('email');
+            document.getElementById('signupPassword').placeholder = getTranslation('password');
+            document.getElementById('loginBtn').textContent = getTranslation('login');
+            document.getElementById('signupBtn').textContent = getTranslation('signup');
+            document.getElementById('showLoginBtn').textContent = getTranslation('login');
+            document.getElementById('showSignupBtn').textContent = getTranslation('signup');
         }
 
         // Custom alert function (replaces window.alert)
@@ -1915,7 +2017,7 @@
                 { id: "cell-bottom-4", type: "city", content: "Rio de Janeiro", displayName_en: "Rio", displayName_ar: "ريو دي جانيرو", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
 
                 // Index 25: Internet Company
-                { id: "cell-bottom-5", type: "company", content: "Internet", displayName_en: "Internet", displayName_ar: "الإنترنت", price: 150, emoji: "🌐", rentLevels: [15], boardIndex: 25, owner: null },
+                { id: "cell-bottom-5", type: "company", content: "Internet", displayName_en: "Internet", displayName_ar: "الإنترنت", price: 150, emoji: "�", rentLevels: [15], boardIndex: 25, owner: null },
 
                 // Bottom Row Cities (Brazil, Argentina)
                 { id: "cell-bottom-6", type: "city", content: "Sao Paulo", displayName_en: "Sao Paulo", displayName_ar: "ساو باولو", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
@@ -2314,7 +2416,7 @@
             if (targetPositionRaw >= boardPath.length && oldPositionIndex !== 0) {
                 currentPlayer.money += gameState.PASS_GO_MONEY;
                 alert(getTranslation('playerPassedStart', currentPlayer.name, gameState.PASS_GO_MONEY));
-                showMoneyEffect(currentPlayer.userId, gameState.PASS_GO_MONEY, 'gain'); // Visual effect for money gain
+                showMoneyEffect(currentPlayer.userId, gameState.PASS_GO_MONSPY, 'gain'); // Visual effect for money gain
                 updatePlayersList(); // Update player's money display
                 console.log(`[Roll Dice Debug] ${Date.now()}: Player ${currentPlayer.name} passed Start. Money: ${currentPlayer.money}`);
             }
@@ -3733,36 +3835,101 @@
                 auth = getAuth(app);
                 console.log("[Firebase] Firebase app, db, and auth initialized.");
 
-                // Sign in with custom token if available, otherwise anonymously
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                    console.log("[Firebase] Signed in with custom token.");
-                } else {
-                    await signInAnonymously(auth);
-                    console.log("[Firebase] Signed in anonymously.");
-                }
-
                 // Listen for auth state changes
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         currentUserId = user.uid;
                         document.getElementById('currentUserIdDisplay').textContent = currentUserId;
                         console.log(`[Firebase] User authenticated: ${currentUserId}`);
+                        // After authentication, check and set username
                         await checkAndSetUsername();
                     } else {
                         currentUserId = null;
                         currentUsername = null;
                         document.getElementById('currentUserIdDisplay').textContent = "Not Authenticated";
-                        console.log("[Firebase] User logged out or not authenticated.");
-                        // Handle UI changes for logged out state if necessary
+                        console.log("[Firebase] User logged out or not authenticated. Showing login/signup modal.");
+                        document.getElementById('loginSignupModal').classList.remove('hidden'); // Show login/signup modal
+                        document.getElementById('lobbyPage').classList.add('hidden'); // Hide lobby
+                        document.getElementById('gamePage').classList.add('hidden'); // Hide game
                     }
                 });
+
+                // Sign in with custom token if available (for Canvas environment)
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                    console.log("[Firebase] Signed in with custom token.");
+                } else {
+                    // If no custom token, let onAuthStateChanged handle anonymous or email/password sign-in
+                    // No explicit signInAnonymously here, as we want to prompt for email/password if not already signed in.
+                    console.log("[Firebase] No custom token. Awaiting user authentication via login/signup.");
+                }
+
             } catch (error) {
                 console.error("Error setting up Firebase:", error);
                 document.getElementById('currentUserIdDisplay').textContent = `Error: ${error.message}`;
                 alert(`Failed to connect to Firebase: ${error.message}. Check your Firebase project setup.`);
             }
         }
+
+        // --- Authentication Functions ---
+        async function handleSignUp() {
+            const emailInput = document.getElementById('signupEmail');
+            const passwordInput = document.getElementById('signupPassword');
+            const errorDisplay = document.getElementById('signupError');
+            const email = emailInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            errorDisplay.textContent = ''; // Clear previous errors
+
+            if (!email || !password) {
+                errorDisplay.textContent = "Please enter both email and password."; // No translation needed for basic validation
+                return;
+            }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                errorDisplay.textContent = getTranslation('invalidEmail');
+                return;
+            }
+            if (password.length < 6) {
+                errorDisplay.textContent = getTranslation('passwordTooShort');
+                return;
+            }
+
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                console.log("[Auth] User signed up:", userCredential.user.uid);
+                document.getElementById('loginSignupModal').classList.add('hidden');
+                // onAuthStateChanged will handle the next step (checkAndSetUsername)
+            } catch (error) {
+                console.error("Signup error:", error);
+                errorDisplay.textContent = getTranslation('signupError'); // Generic error message
+            }
+        }
+
+        async function handleLogin() {
+            const emailInput = document.getElementById('loginEmail');
+            const passwordInput = document.getElementById('loginPassword');
+            const errorDisplay = document.getElementById('loginSignupError'); // Use the shared error display for login
+            const email = emailInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            errorDisplay.textContent = ''; // Clear previous errors
+
+            if (!email || !password) {
+                errorDisplay.textContent = "Please enter both email and password.";
+                return;
+            }
+
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                console.log("[Auth] User logged in:", userCredential.user.uid);
+                document.getElementById('loginSignupModal').classList.add('hidden');
+                // onAuthStateChanged will handle the next step (checkAndSetUsername)
+            } catch (error) {
+                console.error("Login error:", error);
+                errorDisplay.textContent = getTranslation('loginError'); // Generic error message
+            }
+        }
+
 
         // --- Username Management ---
         async function checkAndSetUsername() {
@@ -3793,10 +3960,12 @@
                 } else {
                     console.log("[Username] User profile not found or username not set. Showing username modal.");
                     document.getElementById('usernameModal').classList.remove('hidden');
+                    document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup modal
                 }
             } catch (error) {
                 console.error("Error fetching user profile:", error);
                 document.getElementById('usernameModal').classList.remove('hidden'); // Show modal on error
+                document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup modal
             }
         }
 
@@ -3816,9 +3985,9 @@
                 return;
             }
 
-            if (!db) {
-                console.error("[Username] Firestore DB not initialized. Cannot save username.");
-                alert("Database not ready. Please try again.");
+            if (!db || !currentUserId) { // Ensure currentUserId is available
+                console.error("[Username] Firestore DB not initialized or user not authenticated. Cannot save username.");
+                alert("Database not ready or user not authenticated. Please try again.");
                 return;
             }
 
@@ -4042,8 +4211,9 @@
                 gameState.partyCode = null;
                 gameDocRef = null;
                 // Reset UI to initial lobby state
-                document.getElementById('lobbyPage').classList.remove('hidden');
+                document.getElementById('lobbyPage').classList.add('hidden');
                 document.getElementById('gamePage').classList.add('hidden');
+                document.getElementById('loginSignupModal').classList.remove('hidden'); // Show login/signup again
                 document.getElementById('partyCodeInput').value = '';
                 gameState.players = []; // Clear local players array
                 gameState.leaderId = null; // Clear local leader
@@ -4078,6 +4248,8 @@
                     if (gameState.gameStatus === 'lobby') {
                         document.getElementById('lobbyPage').classList.remove('hidden');
                         document.getElementById('gamePage').classList.add('hidden');
+                        document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup
+                        document.getElementById('usernameModal').classList.add('hidden'); // Hide username modal
                         updateLobbyPlayerCards();
                         // Update current player's money display in lobby header
                         const currentPlayerInLobby = gameState.players.find(p => p.userId === currentUserId);
@@ -4087,6 +4259,8 @@
                     } else if (gameState.gameStatus === 'in-game') {
                         document.getElementById('lobbyPage').classList.add('hidden');
                         document.getElementById('gamePage').classList.remove('hidden');
+                        document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup
+                        document.getElementById('usernameModal').classList.add('hidden'); // Hide username modal
                         populateBoard(); // Re-render board with latest property owners/levels
                         addPlayerTokens(); // Re-add tokens to ensure correct positions
                         updatePlayersList();
@@ -4102,6 +4276,7 @@
                         alert(getTranslation('gameEnded'));
                         document.getElementById('gamePage').classList.add('hidden');
                         document.getElementById('lobbyPage').classList.remove('hidden');
+                        document.getElementById('loginSignupModal').classList.remove('hidden'); // Show login/signup again
                         // Optionally clean up game document from Firestore here or let it persist
                         // deleteDoc(gameDocRef); // Uncomment if games should be deleted after ending
                         if (gameUnsubscribe) {
@@ -4185,14 +4360,24 @@
                 const partyCodeInput = document.getElementById('partyCodeInput');
                 const backButton = document.querySelector('.lobby-header .left-section button'); // Back button in lobby
 
+                // Login/Signup elements
+                const loginForm = document.getElementById('loginForm');
+                const signupForm = document.getElementById('signupForm');
+                const showLoginBtn = document.getElementById('showLoginBtn');
+                const showSignupBtn = document.getElementById('showSignupBtn');
+                const loginBtn = document.getElementById('loginBtn');
+                const signupBtn = document.getElementById('signupBtn');
+
                 // Initialize players as empty
                 gameState.players = [];
                 gameState.currentPlayerIndex = 0; // Start with the first player (will be 0 if no players)
                 gameState.leaderId = null; // No leader initially
 
-                // Hide both pages initially, show username modal or lobby after Firebase setup
+                // Hide all main pages initially, Firebase setup will decide what to show
                 lobbyPage.classList.add('hidden');
                 gamePage.classList.add('hidden');
+                document.getElementById('usernameModal').classList.add('hidden');
+                document.getElementById('loginSignupModal').classList.add('hidden'); // Initially hidden, will be shown by setupFirebase if needed
 
                 await setupFirebase(); // Initialize Firebase and handle auth/username
 
@@ -4315,6 +4500,47 @@
                         }
                     });
                 }
+
+                // Login/Signup form toggling
+                if (showLoginBtn && showSignupBtn && loginForm && signupForm) {
+                    showLoginBtn.addEventListener('click', () => {
+                        loginForm.classList.remove('hidden');
+                        signupForm.classList.add('hidden');
+                        showLoginBtn.classList.add('active');
+                        showSignupBtn.classList.remove('active');
+                        document.getElementById('loginSignupError').textContent = ''; // Clear error when switching
+                        document.getElementById('signupError').textContent = ''; // Clear signup error
+                    });
+                    showSignupBtn.addEventListener('click', () => {
+                        signupForm.classList.remove('hidden');
+                        loginForm.classList.add('hidden');
+                        showSignupBtn.classList.add('active');
+                        showLoginBtn.classList.remove('active');
+                        document.getElementById('loginSignupError').textContent = ''; // Clear error when switching
+                        document.getElementById('signupError').textContent = ''; // Clear signup error
+                    });
+                }
+
+                // Login/Signup button listeners
+                if (loginBtn) {
+                    loginBtn.addEventListener('click', handleLogin);
+                    document.getElementById('loginEmail').addEventListener('keypress', (event) => {
+                        if (event.key === 'Enter') handleLogin();
+                    });
+                    document.getElementById('loginPassword').addEventListener('keypress', (event) => {
+                        if (event.key === 'Enter') handleLogin();
+                    });
+                }
+                if (signupBtn) {
+                    signupBtn.addEventListener('click', handleSignUp);
+                    document.getElementById('signupEmail').addEventListener('keypress', (event) => {
+                        if (event.key === 'Enter') handleSignUp();
+                    });
+                    document.getElementById('signupPassword').addEventListener('keypress', (event) => {
+                        if (event.key === 'Enter') handleSignUp();
+                    });
+                }
+
 
                 // Attach event listener for sending trade offer
                 document.getElementById('sendTradeOfferBtn').addEventListener('click', sendTradeOffer);
