@@ -884,10 +884,17 @@
 
             <div id="signupForm" class="hidden">
                 <h3 class="text-xl font-bold mb-4" id="signupTitle">Sign Up</h3>
+                <input type="text" id="signupUsername" class="input-field w-full mb-3" placeholder="Username">
                 <input type="email" id="signupEmail" class="input-field w-full mb-3" placeholder="Email">
                 <input type="password" id="signupPassword" class="input-field w-full mb-3" placeholder="Password">
                 <p id="signupError" class="text-red-400 text-sm mb-4"></p>
                 <button id="signupBtn" class="btn-primary py-2 px-6 rounded-md w-full">Sign Up</button>
+            </div>
+
+            <div class="mt-6">
+                <button id="googleSignInBtn" class="btn-secondary py-2 px-6 rounded-md w-full flex items-center justify-center gap-2">
+                    <i class="fab fa-google"></i> <span id="googleSignInText">Sign in with Google</span>
+                </button>
             </div>
         </div>
     </div>
@@ -1198,7 +1205,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global Firebase variables
@@ -1396,10 +1403,12 @@
                 signup: "Sign Up",
                 email: "Email",
                 password: "Password",
+                username: "Username",
                 loginError: "Login failed. Please check your email and password.",
                 signupError: "Sign up failed. Please try again with a different email.",
                 invalidEmail: "Invalid email address.",
-                passwordTooShort: "Password must be at least 6 characters long."
+                passwordTooShort: "Password must be at least 6 characters long.",
+                googleSignIn: "Sign in with Google"
             },
             ar: {
                 back: "العودة",
@@ -1556,10 +1565,12 @@
                 signup: "إنشاء حساب",
                 email: "البريد الإلكتروني",
                 password: "كلمة المرور",
+                username: "اسم المستخدم",
                 loginError: "فشل تسجيل الدخول. الرجاء التحقق من البريد الإلكتروني وكلمة المرور.",
                 signupError: "فشل إنشاء الحساب. الرجاء المحاولة مرة أخرى ببريد إلكتروني مختلف.",
                 invalidEmail: "عنوان بريد إلكتروني غير صالح.",
-                passwordTooShort: "يجب أن تتكون كلمة المرور من 6 أحرف على الأقل."
+                passwordTooShort: "يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.",
+                googleSignIn: "تسجيل الدخول باستخدام جوجل"
             }
         };
 
@@ -1675,12 +1686,14 @@
             document.getElementById('signupTitle').textContent = getTranslation('signup');
             document.getElementById('loginEmail').placeholder = getTranslation('email');
             document.getElementById('loginPassword').placeholder = getTranslation('password');
+            document.getElementById('signupUsername').placeholder = getTranslation('username'); // New username field
             document.getElementById('signupEmail').placeholder = getTranslation('email');
             document.getElementById('signupPassword').placeholder = getTranslation('password');
             document.getElementById('loginBtn').textContent = getTranslation('login');
             document.getElementById('signupBtn').textContent = getTranslation('signup');
             document.getElementById('showLoginBtn').textContent = getTranslation('login');
             document.getElementById('showSignupBtn').textContent = getTranslation('signup');
+            document.getElementById('googleSignInText').textContent = getTranslation('googleSignIn'); // New Google sign-in button
         }
 
         // Custom alert function (replaces window.alert)
@@ -2017,7 +2030,7 @@
                 { id: "cell-bottom-4", type: "city", content: "Rio de Janeiro", displayName_en: "Rio", displayName_ar: "ريو دي جانيرو", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
 
                 // Index 25: Internet Company
-                { id: "cell-bottom-5", type: "company", content: "Internet", displayName_en: "Internet", displayName_ar: "الإنترنت", price: 150, emoji: "�", rentLevels: [15], boardIndex: 25, owner: null },
+                { id: "cell-bottom-5", type: "company", content: "Internet", displayName_en: "Internet", displayName_ar: "الإنترنت", price: 150, emoji: "🌐", rentLevels: [15], boardIndex: 25, owner: null },
 
                 // Bottom Row Cities (Brazil, Argentina)
                 { id: "cell-bottom-6", type: "city", content: "Sao Paulo", displayName_en: "Sao Paulo", displayName_ar: "ساو باولو", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
@@ -2416,7 +2429,7 @@
             if (targetPositionRaw >= boardPath.length && oldPositionIndex !== 0) {
                 currentPlayer.money += gameState.PASS_GO_MONEY;
                 alert(getTranslation('playerPassedStart', currentPlayer.name, gameState.PASS_GO_MONEY));
-                showMoneyEffect(currentPlayer.userId, gameState.PASS_GO_MONSPY, 'gain'); // Visual effect for money gain
+                showMoneyEffect(currentPlayer.userId, gameState.PASS_GO_MONEY, 'gain'); // Visual effect for money gain
                 updatePlayersList(); // Update player's money display
                 console.log(`[Roll Dice Debug] ${Date.now()}: Player ${currentPlayer.name} passed Start. Money: ${currentPlayer.money}`);
             }
@@ -3873,16 +3886,27 @@
 
         // --- Authentication Functions ---
         async function handleSignUp() {
+            const usernameInput = document.getElementById('signupUsername');
             const emailInput = document.getElementById('signupEmail');
             const passwordInput = document.getElementById('signupPassword');
             const errorDisplay = document.getElementById('signupError');
+
+            const username = usernameInput.value.trim();
             const email = emailInput.value.trim();
             const password = passwordInput.value.trim();
 
             errorDisplay.textContent = ''; // Clear previous errors
 
+            // Validate username format
+            const usernameRegex = /^[a-z0-9_]{3,15}$/;
+            if (!usernameRegex.test(username)) {
+                errorDisplay.textContent = getTranslation('usernameInvalid');
+                console.warn(`[Auth] Signup failed: Username validation failed for "${username}".`);
+                return;
+            }
+
             if (!email || !password) {
-                errorDisplay.textContent = "Please enter both email and password."; // No translation needed for basic validation
+                errorDisplay.textContent = "Please enter both email and password.";
                 return;
             }
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -3895,13 +3919,33 @@
             }
 
             try {
+                // Check if username is unique before creating account
+                const usersCollectionRef = collection(db, `artifacts/${appId}/users`);
+                const q = query(usersCollectionRef, where("profile.data.username", "==", username));
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    errorDisplay.textContent = getTranslation('usernameTaken');
+                    console.warn(`[Auth] Signup failed: Username "${username}" already taken.`);
+                    return;
+                }
+
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                console.log("[Auth] User signed up:", userCredential.user.uid);
+                const user = userCredential.user;
+                currentUserId = user.uid; // Ensure currentUserId is set for Firestore operation
+
+                // Save username and language to Firestore profile immediately after signup
+                const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
+                await setDoc(userDocRef, { username: username, language: gameState.currentLanguage }, { merge: true });
+                currentUsername = username;
+                alert(getTranslation('usernameSaved', username)); // Show success message
+
+                console.log("[Auth] User signed up and profile created:", user.uid);
                 document.getElementById('loginSignupModal').classList.add('hidden');
-                // onAuthStateChanged will handle the next step (checkAndSetUsername)
+                // onAuthStateChanged will handle the next step (checkAndSetUsername, which will now find the username)
             } catch (error) {
                 console.error("Signup error:", error);
-                errorDisplay.textContent = getTranslation('signupError'); // Generic error message
+                errorDisplay.textContent = getTranslation('signupError');
             }
         }
 
@@ -3927,6 +3971,23 @@
             } catch (error) {
                 console.error("Login error:", error);
                 errorDisplay.textContent = getTranslation('loginError'); // Generic error message
+            }
+        }
+
+        async function signInWithGoogle() {
+            const provider = new GoogleAuthProvider();
+            try {
+                const result = await signInWithPopup(auth, provider);
+                const user = result.user;
+                currentUserId = user.uid; // Ensure currentUserId is set
+
+                console.log("[Auth] Signed in with Google:", user.uid);
+                document.getElementById('loginSignupModal').classList.add('hidden');
+                // onAuthStateChanged will trigger checkAndSetUsername, which will handle username prompt if needed
+            } catch (error) {
+                console.error("Google Sign-In error:", error);
+                const errorDisplay = document.getElementById('loginSignupError');
+                errorDisplay.textContent = `Google Sign-In failed: ${error.message}`; // More specific error for Google
             }
         }
 
@@ -3958,9 +4019,10 @@
                     }
 
                 } else {
+                    // If user is authenticated but no username is set (e.g., new Google sign-in)
                     console.log("[Username] User profile not found or username not set. Showing username modal.");
                     document.getElementById('usernameModal').classList.remove('hidden');
-                    document.getElementById('loginSignupModal').classList.add('hidden'); // Hide login/signup modal
+                    document.getElementById('loginSignupModal').classList.add('hidden'); // Ensure login/signup is hidden
                 }
             } catch (error) {
                 console.error("Error fetching user profile:", error);
@@ -4367,6 +4429,7 @@
                 const showSignupBtn = document.getElementById('showSignupBtn');
                 const loginBtn = document.getElementById('loginBtn');
                 const signupBtn = document.getElementById('signupBtn');
+                const googleSignInBtn = document.getElementById('googleSignInBtn'); // New Google sign-in button
 
                 // Initialize players as empty
                 gameState.players = [];
@@ -4533,12 +4596,20 @@
                 }
                 if (signupBtn) {
                     signupBtn.addEventListener('click', handleSignUp);
+                    document.getElementById('signupUsername').addEventListener('keypress', (event) => {
+                        if (event.key === 'Enter') handleSignUp();
+                    });
                     document.getElementById('signupEmail').addEventListener('keypress', (event) => {
                         if (event.key === 'Enter') handleSignUp();
                     });
                     document.getElementById('signupPassword').addEventListener('keypress', (event) => {
                         if (event.key === 'Enter') handleSignUp();
                     });
+                }
+
+                // Google Sign-In button listener
+                if (googleSignInBtn) {
+                    googleSignInBtn.addEventListener('click', signInWithGoogle);
                 }
 
 
