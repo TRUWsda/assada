@@ -250,10 +250,11 @@
                 console.log("[Firebase] initialAuthToken:", initialAuthToken);
 
                 app = initializeApp(firebaseConfig);
-                console.log("[Firebase] Firebase app initialized:", app);
+                console.log("[Firebase] Firebase app initialized. App object:", app); // Added log
                 db = getFirestore(app);
+                console.log("[Firebase] Firestore initialized. DB object:", db); // Added log
                 auth = getAuth(app);
-                console.log("[Firebase] Firebase db and auth initialized.");
+                console.log("[Firebase] Auth initialized. Auth object:", auth); // Added log
 
                 let authReady = false; // Flag to ensure buttons are enabled only once initially
 
@@ -283,7 +284,6 @@
                     console.log("[Firebase] Signed in with custom token.");
                 } else {
                     console.log("[Firebase] No custom token. Awaiting user authentication via login/signup.");
-                    // Ensure the modal is visible if no auto-login happens
                     // The modal is handled by onAuthStateChanged if no user is found
                 }
 
@@ -548,4 +548,3 @@
     </script>
 </body>
 </html>
-
