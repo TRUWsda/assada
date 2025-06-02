@@ -786,10 +786,49 @@
             font-size: 0.65rem; /* Even smaller font for details */
             color: #909090;
         }
+
+        /* Username Modal Styles */
+        #usernameModal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        #usernameModalContent {
+            background-color: #22223b;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        #usernameError {
+            color: #fca5a5;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            min-height: 1.2rem; /* Reserve space to prevent layout shift */
+        }
     </style>
 </head>
 <body dir="ltr">
-    <div id="lobbyPage" class="main-container">
+    <div id="usernameModal" class="hidden">
+        <div id="usernameModalContent">
+            <h3 class="text-xl font-bold mb-4" id="usernameModalTitle">Choose Your Username</h3>
+            <p class="text-gray-300 mb-4" id="usernameModalDescription">This will be your unique name in the game. Only lowercase letters, numbers, and underscores are allowed.</p>
+            <input type="text" id="usernameInput" class="input-field w-full mb-2" placeholder="Enter username" maxlength="15">
+            <p id="usernameError" class="text-red-400 text-sm mb-4"></p>
+            <button id="saveUsernameBtn" class="btn-primary py-2 px-6 rounded-md w-full">Save Username</button>
+        </div>
+    </div>
+
+    <div id="lobbyPage" class="main-container hidden">
         <header class="lobby-header">
             <div class="left-section">
                 <button class="text-gray-300 hover:text-white transition-colors duration-200">
@@ -802,7 +841,7 @@
                     <i class="fas fa-users mr-1"></i> <span id="lobbyPlayerCount">0/5</span>
                 </span>
                 <span class="text-green-400 font-bold">
-                    <i class="fas fa-coins mr-1"></i> 2,033,059,909
+                    <i class="fas fa-coins mr-1"></i> <span id="playerMoneyDisplay">0</span>
                 </span>
                 <button id="toggleOnlinePlayers" class="text-gray-400 hover:text-white text-sm ml-2">
                     <i class="fas fa-eye"></i>
@@ -829,6 +868,7 @@
                         <span class="text-gray-300" id="closedPartyText">CLOSED PARTY</span>
                     </label>
                     <input type="text" placeholder="PARTY CODE" class="party-code-input" id="partyCodeInput" />
+                    <button id="createJoinPartyBtn" class="btn-primary py-1 px-3 rounded-md text-sm">Create/Join</button>
                 </div>
 
                 <div class="player-cards-container" id="lobbyPlayerCardsContainer">
@@ -859,7 +899,7 @@
             <div class="left-sidebar w-full lg:w-1/4 flex flex-col gap-4">
                 <div class="bg-[#22223b] p-4 rounded-lg shadow-md">
                     <h3 class="text-lg font-bold mb-2" id="shareGameTitle">Share This Game</h3>
-                    <input type="text" value="https://truwpi.io/room/gameid" readonly class="input-field w-full mb-3 text-sm" />
+                    <input type="text" value="https://game-1-b46e1.web.app/" readonly class="input-field w-full mb-3 text-sm" id="gameShareLink"/>
                     <div class="flex gap-2">
                         <button class="btn-secondary w-full py-2 rounded-md" id="copyButton"><i class="fas fa-copy mr-2"></i> <span id="copyButtonText">Copy</span></button>
                         <button class="btn-secondary w-full py-2 rounded-md" id="roomSettingsButton"><i class="fas fa-cog mr-2"></i> <span id="roomSettingsButtonText">Room Settings</span></button>
@@ -868,7 +908,7 @@
 
                 <div class="bg-[#22223b] p-4 rounded-lg shadow-md">
                     <h3 class="text-lg font-bold mb-2" id="userIdTitle">User ID</h3>
-                    <p id="currentUserIdDisplay" class="text-sm text-gray-400 break-all">Not Available (No Database Connection)</p>
+                    <p id="currentUserIdDisplay" class="text-sm text-gray-400 break-all">Loading...</p>
                 </div>
 
                 <div class="chat-window shadow-md">
@@ -1082,9 +1122,25 @@
         </div>
     </div>
 
-    <script>
-        // Debugging: Log script start
-        console.log("Script execution started.");
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, addDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables
+        let app;
+        let db;
+        let auth;
+        let currentUserId = null;
+        let currentUsername = null;
+        let gameDocRef = null; // Reference to the current game document in Firestore
+        let gameUnsubscribe = null; // To unsubscribe from game state changes
+        let userProfileUnsubscribe = null; // To unsubscribe from user profile changes
+
+        // Global app ID from environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'game-1-b46e1'; // Updated appId
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         // Game State Object
         const gameState = {
@@ -1097,7 +1153,9 @@
             pendingTradeOffers: [], // Array to store pending trade offers
             currentActiveTradeOffer: null, // Stores the offer currently displayed to the recipient
             leaderId: null, // ID of the current party leader
-            currentLanguage: 'en' // Default language
+            currentLanguage: 'en', // Default language
+            gameStatus: 'lobby', // 'lobby', 'in-game', 'ended'
+            partyCode: null // The code for the current party/game
         };
 
         const MAX_PLAYERS = 5; // Maximum number of players allowed
@@ -1232,7 +1290,34 @@
                 confirmKick: (playerName) => `Are you sure you want to kick ${playerName} from the lobby?`,
                 leader: "Leader",
                 playerKicked: (playerName) => `${playerName} has been kicked from the lobby.`,
-                onlyLeaderCanKick: "Only the party leader can kick players."
+                onlyLeaderCanKick: "Only the party leader can kick players.",
+                usernameModalTitle: "Choose Your Username",
+                usernameModalDescription: "This will be your unique name in the game. Only lowercase letters, numbers, and underscores are allowed.",
+                saveUsername: "Save Username",
+                usernameInvalid: "Username must be lowercase, alphanumeric with underscores, and between 3-15 characters.",
+                usernameTaken: "This username is already taken. Please choose another.",
+                usernameSaved: (username) => `Username "${username}" saved successfully!`,
+                noOtherPlayers: "No other players in the lobby to trade with.",
+                chatUnavailable: "Chat is currently unavailable (No Database Connection).",
+                prop_s_: "prop(s)",
+                offer: "Offer",
+                request: "Request",
+                createJoinParty: "Create/Join",
+                lobbyNotFound: "Lobby not found or game has started.",
+                lobbyCreated: (code) => `Lobby created! Share code: ${code}`,
+                lobbyJoined: (code) => `Joined lobby: ${code}`,
+                playerJoinedLobby: (playerName) => `${playerName} joined the lobby.`,
+                playerLeftLobby: (playerName) => `${playerName} left the lobby.`,
+                gameStarted: "Game started!",
+                gameEnded: "Game ended!",
+                gameAlreadyStarted: "Game has already started.",
+                gameNotStarted: "Game has not started yet.",
+                notLeader: "Only the party leader can start the game.",
+                playerMoney: (amount) => `Money: $${amount}`,
+                timeLeft: "Time Left",
+                modifyTradeOffer: "Modify Trade Offer",
+                playerMoneyDisplay: "Money",
+                playerCount: "Players"
             },
             ar: {
                 back: "العودة",
@@ -1357,7 +1442,34 @@
                 confirmKick: (playerName) => `هل أنت متأكد أنك تريد طرد ${playerName} من الردهة؟`,
                 leader: "القائد",
                 playerKicked: (playerName) => `${playerName} تم طرده من الردهة.`,
-                onlyLeaderCanKick: "فقط قائد الحفلة يمكنه طرد اللاعبين."
+                onlyLeaderCanKick: "فقط قائد الحفلة يمكنه طرد اللاعبين.",
+                usernameModalTitle: "اختر اسم المستخدم الخاص بك",
+                usernameModalDescription: "سيكون هذا اسمك الفريد في اللعبة. يُسمح فقط بالأحرف الصغيرة والأرقام والشرطات السفلية.",
+                saveUsername: "حفظ اسم المستخدم",
+                usernameInvalid: "يجب أن يكون اسم المستخدم أحرفًا صغيرة وأرقامًا وشرطات سفلية، ويتراوح طوله بين 3-15 حرفًا.",
+                usernameTaken: "اسم المستخدم هذا مستخدم بالفعل. الرجاء اختيار اسم آخر.",
+                usernameSaved: (username) => `تم حفظ اسم المستخدم "${username}" بنجاح!`,
+                noOtherPlayers: "لا يوجد لاعبون آخرون في الردهة للمقايضة معهم.",
+                chatUnavailable: "الدردشة غير متاحة حاليًا (لا يوجد اتصال بقاعدة البيانات).",
+                prop_s_: "عقار(ات)",
+                offer: "عرض",
+                request: "طلب",
+                createJoinParty: "إنشاء/انضمام",
+                lobbyNotFound: "لم يتم العثور على الردهة أو بدأت اللعبة.",
+                lobbyCreated: (code) => `تم إنشاء الردهة! رمز المشاركة: ${code}`,
+                lobbyJoined: (code) => `انضممت إلى الردهة: ${code}`,
+                playerJoinedLobby: (playerName) => `انضم ${playerName} إلى الردهة.`,
+                playerLeftLobby: (playerName) => `غادر ${playerName} الردهة.`,
+                gameStarted: "بدأت اللعبة!",
+                gameEnded: "انتهت اللعبة!",
+                gameAlreadyStarted: "لقد بدأت اللعبة بالفعل.",
+                gameNotStarted: "لم تبدأ اللعبة بعد.",
+                notLeader: "فقط قائد الحفلة يمكنه بدء اللعبة.",
+                playerMoney: (amount) => `المال: $${amount}`,
+                timeLeft: "الوقت المتبقي",
+                modifyTradeOffer: "تعديل عرض التبادل",
+                playerMoneyDisplay: "المال",
+                playerCount: "اللاعبون"
             }
         };
 
@@ -1379,6 +1491,8 @@
             // Update party section
             document.getElementById('closedPartyText').textContent = getTranslation('closedParty');
             document.getElementById('partyCodeInput').placeholder = getTranslation('partyCode');
+            document.getElementById('createJoinPartyBtn').textContent = getTranslation('createJoinParty');
+
 
             // Update lobby player cards (re-render)
             updateLobbyPlayerCards();
@@ -1386,7 +1500,7 @@
             document.getElementById('lobbyPlayButton').textContent = getTranslation('play');
 
             // Update online players sidebar
-            document.getElementById('onlinePlayersTitle').innerHTML = `${getTranslation('online')} <span class="text-green-400">(0)</span>`;
+            document.getElementById('onlinePlayersTitle').innerHTML = `${getTranslation('online')} <span class="text-green-400">(${gameState.players.length})</span>`;
 
             // Update game page elements
             document.getElementById('shareGameTitle').textContent = getTranslation('shareGame');
@@ -1402,7 +1516,7 @@
             document.getElementById('makeTradeText').textContent = getTranslation('makeTrade');
             document.getElementById('useCreateText').textContent = getTranslation('useCreate');
             document.getElementById('createButtonText').textContent = getTranslation('create');
-            document.getElementById('pendingTradesTitle').innerHTML = `${getTranslation('pendingTrades')} (<span id="pendingTradesCount">0</span>)`;
+            document.getElementById('pendingTradesTitle').innerHTML = `${getTranslation('pendingTrades')} (<span id="pendingTradesCount">${gameState.pendingTradeOffers.length}</span>)`;
             document.getElementById('noPendingTradesText').textContent = getTranslation('noPendingTrades');
             document.getElementById('myPropertiesTitle').innerHTML = `${getTranslation('myProperties')} (<span id="myPropertiesCount">0</span>)`;
             document.getElementById('noPropertiesText').textContent = getTranslation('noProperties');
@@ -1461,8 +1575,10 @@
             document.getElementById('applyButtonText').textContent = getTranslation('apply');
             document.getElementById('closeButtonText').textContent = getTranslation('close');
 
-            // Removed the line that changes document.body.dir
-            // document.body.dir = (gameState.currentLanguage === 'ar') ? 'rtl' : 'ltr';
+            // Username modal
+            document.getElementById('usernameModalTitle').textContent = getTranslation('usernameModalTitle');
+            document.getElementById('usernameModalDescription').textContent = getTranslation('usernameModalDescription');
+            document.getElementById('saveUsernameBtn').textContent = getTranslation('saveUsername');
         }
 
         // Custom alert function (replaces window.alert)
@@ -1671,7 +1787,7 @@
                 colorBar.classList.add('w-full', 'h-2', 'absolute', 'top-0', 'left-0', 'property-color-bar');
             }
 
-            const ownerPlayer = cellInfo.owner !== null ? gameState.players.find(p => p.id === cellInfo.owner) : null;
+            const ownerPlayer = cellInfo.owner !== null ? gameState.players.find(p => p.userId === cellInfo.owner) : null;
 
             // Logic for color bar visibility and color
             if (cellInfo.type === 'city' || cellInfo.type === 'company') {
@@ -1688,7 +1804,7 @@
 
             // Create content elements dynamically
             if (cellInfo.type === 'city' && cellInfo.country) {
-                const displayName = cellInfo.displayName || cellInfo.content;
+                const displayName = gameState.currentLanguage === 'ar' ? cellInfo.displayName_ar : cellInfo.displayName_en;
 
                 // City Name (under the color bar)
                 const nameDiv = document.createElement('div');
@@ -1715,9 +1831,10 @@
                 contentContainer.appendChild(levelDiv);
 
             } else if (cellInfo.type === 'company') {
+                const displayName = gameState.currentLanguage === 'ar' ? cellInfo.displayName_ar : cellInfo.displayName_en;
                 const nameDiv = document.createElement('div');
                 nameDiv.className = 'text-xs font-bold leading-tight';
-                nameDiv.textContent = cellInfo.content;
+                nameDiv.textContent = displayName;
                 contentContainer.appendChild(nameDiv);
 
                 const priceDiv = document.createElement('div');
@@ -1753,76 +1870,76 @@
             // This ensures the board is always the same and cities of the same country are adjacent.
             gameState.boardCellsInfo = [
                 // Index 0: Start
-                { id: "cell-top-right-corner", type: "corner", content: getTranslation("start"), emoji: "➡️", boardIndex: 0, owner: null },
+                { id: "cell-top-right-corner", type: "corner", content: "Start", displayName_en: "Start", displayName_ar: "البداية", emoji: "➡️", boardIndex: 0, owner: null },
 
                 // Top Row Cities (USA)
-                { id: "cell-top-1", type: "city", content: "New York", displayName: "New York", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
-                { id: "cell-top-2", type: "city", content: "Los Angeles", displayName: "L.A.", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
-                { id: "cell-top-3", type: "city", content: "Chicago", displayName: "Chicago", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
-                { id: "cell-top-4", type: "city", content: "Houston", displayName: "Houston", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
+                { id: "cell-top-1", type: "city", content: "New York", displayName_en: "New York", displayName_ar: "نيويورك", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
+                { id: "cell-top-2", type: "city", content: "Los Angeles", displayName_en: "L.A.", displayName_ar: "لوس أنجلوس", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
+                { id: "cell-top-3", type: "city", content: "Chicago", displayName_en: "Chicago", displayName_ar: "شيكاغو", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
+                { id: "cell-top-4", type: "city", content: "Houston", displayName_en: "Houston", displayName_ar: "هيوستن", country: "USA", price: countryBasePrices["USA"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["USA"]), owner: null },
 
                 // Index 5: Water Company
-                { id: "cell-top-5", type: "company", content: getTranslation("water"), price: 150, emoji: "💧", rentLevels: [15], boardIndex: 5, owner: null },
+                { id: "cell-top-5", type: "company", content: "Water", displayName_en: "Water", displayName_ar: "الماء", price: 150, emoji: "💧", rentLevels: [15], boardIndex: 5, owner: null },
 
                 // Top Row Cities (Germany)
-                { id: "cell-top-6", type: "city", content: "Berlin", displayName: "Berlin", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
-                { id: "cell-top-7", type: "city", content: "Munich", displayName: "Munich", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
-                { id: "cell-top-8", type: "city", content: "Hamburg", displayName: "Hamburg", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
-                { id: "cell-top-9", type: "city", content: "Frankfurt", displayName: "Frankfurt", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
+                { id: "cell-top-6", type: "city", content: "Berlin", displayName_en: "Berlin", displayName_ar: "برلين", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
+                { id: "cell-top-7", type: "city", content: "Munich", displayName_en: "Munich", displayName_ar: "ميونخ", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
+                { id: "cell-top-8", type: "city", content: "Hamburg", displayName_en: "Hamburg", displayName_ar: "هامبورغ", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
+                { id: "cell-top-9", type: "city", content: "Frankfurt", displayName_en: "Frankfurt", displayName_ar: "فرانكفورت", country: "Germany", price: countryBasePrices["Germany"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Germany"]), owner: null },
 
                 // Index 10: Surprise
-                { id: "cell-top-left-corner", type: "corner", content: getTranslation("surprise"), emoji: "📦", boardIndex: 10, owner: null },
+                { id: "cell-top-left-corner", type: "corner", content: "Surprise", displayName_en: "Surprise", displayName_ar: "مفاجأة", emoji: "📦", boardIndex: 10, owner: null },
 
                 // Left Column Cities (Japan)
-                { id: "cell-left-1", type: "city", content: "Tokyo", displayName: "Tokyo", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
-                { id: "cell-left-2", type: "city", content: "Osaka", displayName: "Osaka", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
-                { id: "cell-left-3", type: "city", content: "Kyoto", displayName: "Kyoto", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
-                { id: "cell-left-4", type: "city", content: "Sapporo", displayName: "Sapporo", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
+                { id: "cell-left-1", type: "city", content: "Tokyo", displayName_en: "Tokyo", displayName_ar: "طوكيو", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
+                { id: "cell-left-2", type: "city", content: "Osaka", displayName_en: "Osaka", displayName_ar: "أوساكا", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
+                { id: "cell-left-3", type: "city", content: "Kyoto", displayName_en: "Kyoto", displayName_ar: "كيوتو", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
+                { id: "cell-left-4", type: "city", content: "Sapporo", displayName_en: "Sapporo", displayName_ar: "سابورو", country: "Japan", price: countryBasePrices["Japan"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Japan"]), owner: null },
 
                 // Index 15: Electricity Company
-                { id: "cell-left-5", type: "company", content: getTranslation("electricity"), price: 150, emoji: "⚡", rentLevels: [15], boardIndex: 15, owner: null },
+                { id: "cell-left-5", type: "company", content: "Electricity", displayName_en: "Electricity", displayName_ar: "الكهرباء", price: 150, emoji: "⚡", rentLevels: [15], boardIndex: 15, owner: null },
 
                 // Left Column Cities (France)
-                { id: "cell-left-6", type: "city", content: "Paris", displayName: "Paris", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
-                { id: "cell-left-7", type: "city", content: "Marseille", displayName: "Marseille", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
-                { id: "cell-left-8", type: "city", content: "Lyon", displayName: "Lyon", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
-                { id: "cell-left-9", type: "city", content: "Nice", displayName: "Nice", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
+                { id: "cell-left-6", type: "city", content: "Paris", displayName_en: "Paris", displayName_ar: "باريس", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
+                { id: "cell-left-7", type: "city", content: "Marseille", displayName_en: "Marseille", displayName_ar: "مرسيليا", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
+                { id: "cell-left-8", type: "city", content: "Lyon", displayName_en: "Lyon", displayName_ar: "ليون", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
+                { id: "cell-left-9", type: "city", content: "Nice", displayName_en: "Nice", displayName_ar: "نيس", country: "France", price: countryBasePrices["France"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["France"]), owner: null },
 
                 // Index 20: Go to Jail
-                { id: "cell-bottom-left-corner", type: "corner", content: getTranslation("goToJail"), emoji: "🚓", boardIndex: 20, owner: null },
+                { id: "cell-bottom-left-corner", type: "corner", content: "Go to Jail", displayName_en: "Go to Jail", displayName_ar: "اذهب إلى السجن", emoji: "🚓", boardIndex: 20, owner: null },
 
                 // Bottom Row Cities (Canada, Brazil, Argentina)
-                { id: "cell-bottom-1", type: "city", content: "Toronto", displayName: "Toronto", country: "Canada", price: countryBasePrices["Canada"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Canada"]), owner: null },
-                { id: "cell-bottom-2", type: "city", content: "Montreal", displayName: "Montreal", country: "Canada", price: countryBasePrices["Canada"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Canada"]), owner: null },
-                { id: "cell-bottom-3", type: "city", content: "Vancouver", displayName: "Vancouver", country: "Canada", price: countryBasePrices["Canada"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Canada"]), owner: null },
-                { id: "cell-bottom-4", type: "city", content: "Rio de Janeiro", displayName: "Rio", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
+                { id: "cell-bottom-1", type: "city", content: "Toronto", displayName_en: "Toronto", displayName_ar: "تورونتو", country: "Canada", price: countryBasePrices["Canada"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Canada"]), owner: null },
+                { id: "cell-bottom-2", type: "city", content: "Montreal", displayName_en: "Montreal", displayName_ar: "مونتريال", country: "Canada", price: countryBasePrices["Canada"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Canada"]), owner: null },
+                { id: "cell-bottom-3", type: "city", content: "Vancouver", displayName_en: "Vancouver", displayName_ar: "فانكوفر", country: "Canada", price: countryBasePrices["Canada"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Canada"]), owner: null },
+                { id: "cell-bottom-4", type: "city", content: "Rio de Janeiro", displayName_en: "Rio", displayName_ar: "ريو دي جانيرو", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
 
                 // Index 25: Internet Company
-                { id: "cell-bottom-5", type: "company", content: getTranslation("internet"), price: 150, emoji: "🌐", rentLevels: [15], boardIndex: 25, owner: null },
+                { id: "cell-bottom-5", type: "company", content: "Internet", displayName_en: "Internet", displayName_ar: "الإنترنت", price: 150, emoji: "🌐", rentLevels: [15], boardIndex: 25, owner: null },
 
                 // Bottom Row Cities (Brazil, Argentina)
-                { id: "cell-bottom-6", type: "city", content: "Sao Paulo", displayName: "Sao Paulo", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
-                { id: "cell-bottom-7", type: "city", content: "Brasilia", displayName: "Brasilia", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
-                { id: "cell-bottom-8", type: "city", content: "Buenos Aires", displayName: "B.A.", country: "Argentina", price: countryBasePrices["Argentina"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Argentina"]), owner: null },
-                { id: "cell-bottom-9", type: "city", content: "Cordoba", displayName: "Cordoba", country: "Argentina", price: countryBasePrices["Argentina"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Argentina"]), owner: null },
+                { id: "cell-bottom-6", type: "city", content: "Sao Paulo", displayName_en: "Sao Paulo", displayName_ar: "ساو باولو", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
+                { id: "cell-bottom-7", type: "city", content: "Brasilia", displayName_en: "Brasilia", displayName_ar: "برازيليا", country: "Brazil", price: countryBasePrices["Brazil"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Brazil"]), owner: null },
+                { id: "cell-bottom-8", type: "city", content: "Buenos Aires", displayName_en: "B.A.", displayName_ar: "بوينس آيرس", country: "Argentina", price: countryBasePrices["Argentina"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Argentina"]), owner: null },
+                { id: "cell-bottom-9", type: "city", content: "Cordoba", displayName_en: "Cordoba", displayName_ar: "قرطبة", country: "Argentina", price: countryBasePrices["Argentina"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Argentina"]), owner: null },
 
                 // Index 30: Vacation
-                { id: "cell-bottom-right-corner", type: "corner", content: getTranslation("vacation"), emoji: "🏖️", boardIndex: 30, owner: null },
+                { id: "cell-bottom-right-corner", type: "corner", content: "Vacation", displayName_en: "Vacation", displayName_ar: "إجازة", emoji: "🏖️", boardIndex: 30, owner: null },
 
                 // Right Column Cities (Egypt, India, Mexico)
-                { id: "cell-right-1", type: "city", content: "Cairo", displayName: "Cairo", country: "Egypt", price: countryBasePrices["Egypt"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Egypt"]), owner: null },
-                { id: "cell-right-2", type: "city", content: "Alexandria", displayName: "Alexandria", country: "Egypt", price: countryBasePrices["Egypt"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Egypt"]), owner: null },
-                { id: "cell-right-3", type: "city", content: "Giza", displayName: "Giza", country: "Egypt", price: countryBasePrices["Egypt"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Egypt"]), owner: null },
-                { id: "cell-right-4", type: "city", content: "Mumbai", displayName: "Mumbai", country: "India", price: countryBasePrices["India"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["India"]), owner: null },
+                { id: "cell-right-1", type: "city", content: "Cairo", displayName_en: "Cairo", displayName_ar: "القاهرة", country: "Egypt", price: countryBasePrices["Egypt"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Egypt"]), owner: null },
+                { id: "cell-right-2", type: "city", content: "Alexandria", displayName_en: "Alexandria", displayName_ar: "الإسكندرية", country: "Egypt", price: countryBasePrices["Egypt"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Egypt"]), owner: null },
+                { id: "cell-right-3", type: "city", content: "Giza", displayName_en: "Giza", displayName_ar: "الجيزة", country: "Egypt", price: countryBasePrices["Egypt"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Egypt"]), owner: null },
+                { id: "cell-right-4", type: "city", content: "Mumbai", displayName_en: "Mumbai", displayName_ar: "مومباي", country: "India", price: countryBasePrices["India"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["India"]), owner: null },
 
                 // Index 35: Airport Company
-                { id: "cell-right-5", type: "company", content: getTranslation("airport"), price: 2000, emoji: "✈️", rentLevels: [15], boardIndex: 35, owner: null },
+                { id: "cell-right-5", type: "company", content: "Airport", displayName_en: "Airport", displayName_ar: "المطار", price: 2000, emoji: "✈️", rentLevels: [15], boardIndex: 35, owner: null },
 
                 // Right Column Cities (India, Mexico)
-                { id: "cell-right-6", type: "city", content: "Delhi", displayName: "Delhi", country: "India", price: countryBasePrices["India"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["India"]), owner: null },
-                { id: "cell-right-7", type: "city", content: "Bangalore", displayName: "Bangalore", country: "India", price: countryBasePrices["India"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["India"]), owner: null },
-                { id: "cell-right-8", type: "city", content: "Mexico City", displayName: "Mexico City", country: "Mexico", price: countryBasePrices["Mexico"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Mexico"]), owner: null },
-                { id: "cell-right-9", type: "city", content: "Guadalajara", displayName: "Guadalajara", country: "Mexico", price: countryBasePrices["Mexico"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Mexico"]), owner: null }
+                { id: "cell-right-6", type: "city", content: "Delhi", displayName_en: "Delhi", displayName_ar: "دلهي", country: "India", price: countryBasePrices["India"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["India"]), owner: null },
+                { id: "cell-right-7", type: "city", content: "Bangalore", displayName_en: "Bangalore", displayName_ar: "بنغالور", country: "India", price: countryBasePrices["India"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["India"]), owner: null },
+                { id: "cell-right-8", type: "city", content: "Mexico City", displayName_en: "Mexico City", displayName_ar: "مدينة مكسيكو", country: "Mexico", price: countryBasePrices["Mexico"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Mexico"]), owner: null },
+                { id: "cell-right-9", type: "city", content: "Guadalajara", displayName_en: "Guadalajara", displayName_ar: "غوادالاخارا", country: "Mexico", price: countryBasePrices["Mexico"], currentUpgradeLevel: 0, rentLevels: generateRentLevels(countryBasePrices["Mexico"]), owner: null }
             ];
 
 
@@ -1879,9 +1996,9 @@
         function addPlayerTokens() {
             gameState.players.forEach(player => {
                 const playerToken = document.createElement('div');
-                playerToken.id = `player-token-${player.id}`;
-                playerToken.classList.add('player-token', `player-color-${player.id}`);
-                playerToken.textContent = player.id; // Display player ID or initial
+                playerToken.id = `player-token-${player.userId}`; // Use userId for token ID
+                playerToken.classList.add('player-token', `player-color-${player.id}`); // player.id is 1,2,3 for color
+                playerToken.textContent = player.name.substring(0, 1).toUpperCase(); // Display first letter of username
                 // Set initial position to "Start" cell
                 const startCell = document.querySelector(`.${boardPath[player.positionIndex]}`);
                 if (startCell) {
@@ -1906,11 +2023,11 @@
                 listItem.innerHTML = `
                     <span>
                         <i class="fas fa-user-circle mr-2" style="color: ${player.color};"></i> ${player.name}
-                        <span id="player-money-change-${player.id}" class="money-change"></span>
+                        <span id="player-money-change-${player.userId}" class="money-change"></span>
                     </span>
                     <span class="flex items-center gap-2">
-                        <span class="text-green-400">$<span id="player-money-${player.id}">${player.money}</span></span>
-                        <button class="text-blue-400 hover:text-blue-200 text-sm" onclick="openTradeCreationModal(gameState.players[gameState.currentPlayerIndex].id)">
+                        <span class="text-green-400">$<span id="player-money-${player.userId}">${player.money}</span></span>
+                        <button class="text-blue-400 hover:text-blue-200 text-sm" onclick="openTradeCreationModal('${currentUserId}')">
                             <i class="fas fa-handshake"></i>
                         </button>
                     </span>
@@ -1920,7 +2037,7 @@
 
             // Update player token highlight on the board
             gameState.players.forEach((player, index) => {
-                const playerToken = document.getElementById(`player-token-${player.id}`);
+                const playerToken = document.getElementById(`player-token-${player.userId}`);
                 if (playerToken) {
                     if (index === gameState.currentPlayerIndex) {
                         playerToken.classList.add('current-player-highlight');
@@ -1935,11 +2052,17 @@
         function updateMyPropertiesList() {
             const myPropertiesListElem = document.getElementById('myPropertiesList');
             const myPropertiesCountElem = document.getElementById('myPropertiesCount');
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId); // Get the actual current user
+
+            if (!currentPlayer) {
+                myPropertiesListElem.innerHTML = `<li class="text-sm text-gray-400">${getTranslation('noProperties')}</li>`;
+                myPropertiesCountElem.textContent = 0;
+                return;
+            }
 
             // Filter properties that belong to the current player
             const playerProperties = Object.values(gameState.boardProperties).filter(
-                prop => prop.ownerId === currentPlayer.id
+                prop => prop.ownerId === currentPlayer.userId
             );
 
             myPropertiesListElem.innerHTML = ''; // Clear current list
@@ -1959,16 +2082,21 @@
                     const originalCell = gameState.boardCellsInfo.find(cell => cell.id === prop.id);
 
                     let iconHtml = '';
-                    if (originalCell && originalCell.type === 'city') {
-                        // Display country flag then city name
-                        iconHtml = `${getCountryFlagImage(originalCell.country)} `;
-                    } else if (originalCell && originalCell.type === 'company') {
-                        iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                    let displayName = '';
+                    if (originalCell) {
+                        displayName = gameState.currentLanguage === 'ar' ? originalCell.displayName_ar : originalCell.displayName_en;
+                        if (originalCell.type === 'city') {
+                            // Display country flag then city name
+                            iconHtml = `${getCountryFlagImage(originalCell.country)} `;
+                        } else if (originalCell.type === 'company') {
+                            iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                        }
                     }
+
 
                     listItem.innerHTML = `
                         ${iconHtml}
-                        <span>${originalCell.content} ($${prop.price})</span>
+                        <span>${displayName} ($${prop.price})</span>
                     `; // Use originalCell.content for full name in list
                     myPropertiesListElem.appendChild(listItem);
                 });
@@ -1978,7 +2106,7 @@
         // Function to check and update button state based on debt
         function checkPlayerDebtStatus() {
             const rollDiceButton = document.getElementById('rollDiceButton');
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId);
 
             if (!currentPlayer) { // If no current player (e.g., game just ended)
                 rollDiceButton.disabled = true;
@@ -2024,7 +2152,7 @@
             updateTimerDisplay(); // Initial display update
 
             const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-            console.log(`[Timer Debug] ${Date.now()}: Starting timer for ${currentPlayer?.name || 'unknown player'} (ID: ${currentPlayer?.id}). Initial time left: ${timeLeft}s. Current player index: ${gameState.currentPlayerIndex}. Total players: ${gameState.players.length}.`);
+            console.log(`[Timer Debug] ${Date.now()}: Starting timer for ${currentPlayer?.name || 'unknown player'} (ID: ${currentPlayer?.userId}). Initial time left: ${timeLeft}s. Current player index: ${gameState.currentPlayerIndex}. Total players: ${gameState.players.length}.`);
 
             turnTimer = setInterval(() => {
                 const currentCheckPlayer = gameState.players[gameState.currentPlayerIndex]; // Get player inside interval for current check
@@ -2035,17 +2163,17 @@
                 }
 
                 if (currentCheckPlayer.money < 0) {
-                    console.log(`[Timer Debug] ${Date.now()}: Timer paused for ${currentCheckPlayer.name} (ID: ${currentCheckPlayer.id}). Money: ${currentCheckPlayer.money}. Time left: ${timeLeft}s. Timer ID: ${turnTimer}.`);
+                    console.log(`[Timer Debug] ${Date.now()}: Timer paused for ${currentCheckPlayer.name} (ID: ${currentCheckPlayer.userId}). Money: ${currentCheckPlayer.money}. Time left: ${timeLeft}s. Timer ID: ${turnTimer}.`);
                     updateTimerDisplay(); // Still update to show current time, but it won't decrement
                     return;
                 }
 
                 timeLeft--;
                 updateTimerDisplay();
-                console.log(`[Timer Debug] ${Date.now()}: Timer ticked for ${currentCheckPlayer.name} (ID: ${currentCheckPlayer.id}). Time left: ${timeLeft}s. Timer ID: ${turnTimer}.`);
+                console.log(`[Timer Debug] ${Date.now()}: Timer ticked for ${currentCheckPlayer.name} (ID: ${currentCheckPlayer.userId}). Time left: ${timeLeft}s. Timer ID: ${turnTimer}.`);
 
                 if (timeLeft <= 0) {
-                    console.log(`[Timer Debug] ${Date.now()}: Time ran out for ${currentCheckPlayer.name} (ID: ${currentCheckPlayer.id}). Kicking player. Timer ID: ${turnTimer}.`);
+                    console.log(`[Timer Debug] ${Date.now()}: Time ran out for ${currentCheckPlayer.name} (ID: ${currentCheckPlayer.userId}). Kicking player. Timer ID: ${turnTimer}.`);
                     clearInterval(turnTimer); // Stop the interval immediately
                     turnTimer = null; // Nullify the timer ID
                     kickPlayer(); // Trigger kick logic
@@ -2074,7 +2202,7 @@
         }
 
         // Function to kick a player from the game (due to timer)
-        function kickPlayer() {
+        async function kickPlayer() {
             console.log(`[Player Kick Debug] ${Date.now()}: kickPlayer called. Before kick - Current player index: ${gameState.currentPlayerIndex}. Total players: ${gameState.players.length}. Players array:`, gameState.players.map(p => p.name));
             const kickedPlayer = gameState.players[gameState.currentPlayerIndex];
             if (!kickedPlayer) {
@@ -2091,7 +2219,7 @@
 
             // Revert properties owned by the kicked player
             Object.keys(gameState.boardProperties).forEach(propId => {
-                if (gameState.boardProperties[propId].ownerId === kickedPlayer.id) {
+                if (gameState.boardProperties[propId].ownerId === kickedPlayer.userId) {
                     const propertyInCellsInfo = gameState.boardCellsInfo.find(cell => cell.id === propId);
                     if (propertyInCellsInfo) {
                         propertyInCellsInfo.owner = null;
@@ -2104,28 +2232,29 @@
             console.log(`[Player Kick Debug] ${Date.now()}: Properties reverted for ${kickedPlayer.name}.`);
 
             // Remove player token from the board
-            const playerToken = document.getElementById(`player-token-${kickedPlayer.id}`);
+            const playerToken = document.getElementById(`player-token-${kickedPlayer.userId}`);
             if (playerToken) {
                 playerToken.remove();
                 console.log(`[Player Kick Debug] ${Date.now()}: Token removed for ${kickedPlayer.name}.`);
             }
 
             // Remove player from the game state
-            gameState.players.splice(gameState.currentPlayerIndex, 1);
-            console.log(`[Player Kick Debug] ${Date.now()}: Player ${kickedPlayer.name} removed from array. Remaining players: ${gameState.players.length}. Players array after splice:`, gameState.players.map(p => p.name));
+            gameState.players = gameState.players.filter(p => p.userId !== kickedPlayer.userId);
+            console.log(`[Player Kick Debug] ${Date.now()}: Player ${kickedPlayer.name} removed from array. Remaining players: ${gameState.players.length}. Players array after filter:`, gameState.players.map(p => p.name));
 
             // If the kicked player was the leader, reassign leaderId
-            if (kickedPlayer.id === gameState.leaderId && gameState.players.length > 0) {
-                gameState.leaderId = gameState.players[0].id;
+            if (kickedPlayer.userId === gameState.leaderId && gameState.players.length > 0) {
+                gameState.leaderId = gameState.players[0].userId;
                 console.log(`[Player Kick Debug] ${Date.now()}: Leader ${kickedPlayer.name} was kicked. New leader: ${gameState.players[0].name}.`);
             } else if (gameState.players.length === 0) {
                 gameState.leaderId = null; // No leader if no players
             }
 
-
             if (gameState.players.length === 0) {
                 alert(getTranslation('allPlayersRemoved'));
                 console.log(`[Game Over] ${Date.now()}: No players left. Game Over.`);
+                gameState.gameStatus = 'ended';
+                await updateGameInFirestore(); // Update Firestore
                 document.getElementById('gamePage').classList.add('hidden');
                 document.getElementById('lobbyPage').classList.remove('hidden');
                 return;
@@ -2149,6 +2278,7 @@
                 startTurnTimer();
             }
             updateLobbyPlayerCards(); // Update lobby cards to reflect removal and potential new leader
+            await updateGameInFirestore(); // Update Firestore
         }
 
 
@@ -2167,13 +2297,13 @@
 
             rollDiceButton.disabled = true; // Disable roll button immediately
             resetTurnTimer(); // Stop the timer while dice are rolling and moving
-            console.log(`[Roll Dice Debug] ${Date.now()}: Player ${currentPlayer.name} (ID: ${currentPlayer.id}) rolling dice. Timer reset.`);
+            console.log(`[Roll Dice Debug] ${Date.now()}: Player ${currentPlayer.name} (ID: ${currentPlayer.userId}) rolling dice. Timer reset.`);
 
             const roll = Math.floor(Math.random() * 6) + 1;
             randomNumberDisplay.textContent = roll;
             console.log(`[Roll Dice Debug] ${Date.now()}: Player ${currentPlayer.name} rolled: ${roll}`);
 
-            const playerToken = document.getElementById(`player-token-${currentPlayer.id}`);
+            const playerToken = document.getElementById(`player-token-${currentPlayer.userId}`);
             playerToken.classList.add('moving'); // Add moving class for visual effect
 
             const oldPositionIndex = currentPlayer.positionIndex;
@@ -2184,7 +2314,7 @@
             if (targetPositionRaw >= boardPath.length && oldPositionIndex !== 0) {
                 currentPlayer.money += gameState.PASS_GO_MONEY;
                 alert(getTranslation('playerPassedStart', currentPlayer.name, gameState.PASS_GO_MONEY));
-                showMoneyEffect(currentPlayer.id, gameState.PASS_GO_MONEY, 'gain'); // Visual effect for money gain
+                showMoneyEffect(currentPlayer.userId, gameState.PASS_GO_MONEY, 'gain'); // Visual effect for money gain
                 updatePlayersList(); // Update player's money display
                 console.log(`[Roll Dice Debug] ${Date.now()}: Player ${currentPlayer.name} passed Start. Money: ${currentPlayer.money}`);
             }
@@ -2207,7 +2337,7 @@
             console.log(`[Roll Dice Debug] ${Date.now()}: Player ${currentPlayer.name} moved to cell: ${boardPath[currentPlayer.positionIndex]} (Index: ${currentPlayer.positionIndex}).`);
 
             // Handle landing on the cell
-            handleLandingOnCell(currentPlayer, boardPath[currentPlayer.positionIndex]);
+            await handleLandingOnCell(currentPlayer, boardPath[currentPlayer.positionIndex]); // Await this
 
             // Change button text to "END" after movement and cell action
             rollDiceButton.textContent = 'END';
@@ -2217,12 +2347,13 @@
             if (currentPlayer.money >= 0) { // Only start timer if not indebted
                 startTurnTimer(); // Start the timer after the player has finished their action
             }
+            await updateGameInFirestore(); // Update Firestore after player action
             console.log(`[Roll Dice Debug] ${Date.now()}: Roll dice sequence for ${currentPlayer.name} completed. Button changed to 'END'.`);
         }
 
         // Function to handle actions when a player lands on a cell
-        function handleLandingOnCell(player, cellId) {
-            console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} (ID: ${player.id}) landed on cell: ${cellId}.`);
+        async function handleLandingOnCell(player, cellId) {
+            console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} (ID: ${player.userId}) landed on cell: ${cellId}.`);
 
             const landedCellInfo = gameState.boardCellsInfo.find(cell => cell.id === cellId);
 
@@ -2236,53 +2367,58 @@
                 if (landedCellInfo.owner === null) {
                     // Show buy option
                     console.log(`[Cell Land Debug] ${Date.now()}: Landed on unowned property: ${landedCellInfo.content}. Displaying buy option.`);
-                    displayBuyOption(player, landedCellInfo);
-                } else if (landedCellInfo.owner !== player.id) {
+                    await displayBuyOption(player, landedCellInfo); // Await buy option resolution
+                } else if (landedCellInfo.owner !== player.userId) { // Use userId for owner comparison
                     // Property is owned by another player - handle rent
-                    const ownerPlayer = gameState.players.find(p => p.id === landedCellInfo.owner);
+                    const ownerPlayer = gameState.players.find(p => p.userId === landedCellInfo.owner);
                     const rentAmount = landedCellInfo.rentLevels[landedCellInfo.currentUpgradeLevel]; // Use rent from current upgrade level
 
                     player.money -= rentAmount;
                     ownerPlayer.money += rentAmount;
                     updatePlayersList();
-                    showMoneyEffect(player.id, rentAmount, 'loss'); // Visual effect for money loss
-                    showMoneyEffect(ownerPlayer.id, rentAmount, 'gain'); // Visual effect for money gain
+                    showMoneyEffect(player.userId, rentAmount, 'loss'); // Visual effect for money loss
+                    showMoneyEffect(ownerPlayer.userId, rentAmount, 'gain'); // Visual effect for money gain
 
                     if (player.money < 0) {
                         alert(getTranslation('playerInDebt', player.name, player.money));
                         console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} in debt. Money: ${player.money}.`);
                     } else {
-                        alert(getTranslation('landedOnOwned', landedCellInfo.displayName || landedCellInfo.content, ownerPlayer.name, rentAmount, player.name));
+                        const displayName = gameState.currentLanguage === 'ar' ? landedCellInfo.displayName_ar : landedCellInfo.displayName_en;
+                        alert(getTranslation('landedOnOwned', displayName, ownerPlayer.name, rentAmount, player.name));
                         console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} paid rent. Money: ${player.money}.`);
                     }
                     checkPlayerDebtStatus(); // Check debt status after rent payment
                 } else {
                     // Landed on own property
-                    alert(getTranslation('landedOnOwn', landedCellInfo.displayName || landedCellInfo.content));
+                    const displayName = gameState.currentLanguage === 'ar' ? landedCellInfo.displayName_ar : landedCellInfo.displayName_en;
+                    alert(getTranslation('landedOnOwn', displayName));
                     console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} landed on own property.`);
                 }
             } else if (landedCellInfo.type === 'corner') {
                 // Handle corner actions
-                if (landedCellInfo.content === getTranslation("goToJail")) {
+                if (landedCellInfo.content === "Go to Jail") {
                     alert(getTranslation('landedOnJail', player.name));
                     console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} landed on Go to Jail.`);
-                } else if (landedCellInfo.content === getTranslation("surprise")) {
+                } else if (landedCellInfo.content === "Surprise") {
                     alert(getTranslation('landedOnSurprise', player.name));
                     console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} landed on Surprise.`);
-                } else if (landedCellInfo.content === getTranslation("vacation")) {
+                } else if (landedCellInfo.content === "Vacation") {
                     alert(getTranslation('landedOnVacation', player.name));
                     console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} landed on Vacation.`);
+                } else if (landedCellInfo.content === "Start") {
+                    // Player already gets money for passing/landing on start
+                    console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} landed on Start.`);
                 }
             } else {
                 // Other types of cells (e.g., tax, bonus cards - future expansion)
-                alert(getTranslation('landedOnMisc', landedCellInfo.content));
+                alert(getTranslation('landedOnMisc', gameState.currentLanguage === 'ar' ? landedCellInfo.displayName_ar : landedCellInfo.displayName_en));
                 console.log(`[Cell Land Debug] ${Date.now()}: Player ${player.name} landed on miscellaneous cell: ${landedCellInfo.content}.`);
             }
             // IMPORTANT: Do NOT call endTurn() here. The "END" button handles turn progression.
         }
 
         // Function to display the buy property modal
-        function displayBuyOption(player, property) {
+        async function displayBuyOption(player, property) {
             const buyModal = document.getElementById('buyPropertyModal');
             const modalTitle = document.getElementById('propertyModalTitle');
             const modalPrice = document.getElementById('propertyModalPrice');
@@ -2290,78 +2426,82 @@
             const buyButton = document.getElementById('buyPropertyBtn');
             const cancelButton = document.getElementById('cancelBuyBtn');
 
-            modalTitle.textContent = getTranslation('buyPropertyQuestion', property.displayName || property.content);
+            const displayName = gameState.currentLanguage === 'ar' ? property.displayName_ar : property.displayName_en;
+            modalTitle.textContent = getTranslation('buyPropertyQuestion', displayName);
             modalPrice.textContent = `$${property.price}`;
             playerMoneyDisplay.textContent = `$${player.money}`;
 
             buyModal.classList.remove('hidden');
-            console.log(`[Buy Option Debug] ${Date.now()}: Buy property modal displayed for: ${property.displayName || property.content}. Player: ${player.name}.`);
+            console.log(`[Buy Option Debug] ${Date.now()}: Buy property modal displayed for: ${displayName}. Player: ${player.name}.`);
+
+            return new Promise(resolve => {
+                // Clear previous listeners to prevent multiple bindings
+                buyButton.onclick = null;
+                cancelButton.onclick = null;
+
+                buyButton.onclick = async () => {
+                    if (player.money >= property.price) {
+                        player.money -= property.price;
+                        property.owner = player.userId; // Assign owner userId
+                        gameState.boardProperties[property.id] = { // Store ownership in gameState
+                            id: property.id,
+                            content: property.content, // Use content for property name
+                            price: property.price, // Store original purchase price
+                            ownerId: player.userId,
+                            currentUpgradeLevel: property.currentUpgradeLevel // Store initial upgrade level
+                        };
+
+                        // Find the cell element to update its color bar
+                        const cellElement = document.querySelector(`.${property.id}`);
+                        if (cellElement) {
+                            updateBoardCellDisplay(cellElement, property); // Update the cell display after purchase
+                        }
 
 
-            // Clear previous listeners to prevent multiple bindings
-            buyButton.onclick = null;
-            cancelButton.onclick = null;
+                        updatePlayersList();
+                        updateMyPropertiesList();
+                        alert(getTranslation('playerBought', player.name, displayName, property.price));
+                        showMoneyEffect(player.userId, property.price, 'loss'); // Visual effect for money loss
+                        buyModal.classList.add('hidden');
+                        console.log(`[Buy Option Debug] ${Date.now()}: Player ${player.name} bought ${property.content}. Money: ${player.money}.`);
+                    } else {
+                        // Allow buying with negative money, but player becomes indebted
+                        player.money -= property.price;
+                        property.owner = player.userId;
+                        gameState.boardProperties[property.id] = {
+                            id: property.id,
+                            content: property.content,
+                            price: property.price,
+                            ownerId: player.userId,
+                            currentUpgradeLevel: property.currentUpgradeLevel
+                        };
 
-            buyButton.onclick = () => {
-                if (player.money >= property.price) {
-                    player.money -= property.price;
-                    property.owner = player.id; // Assign owner ID
-                    gameState.boardProperties[property.id] = { // Store ownership in gameState
-                        id: property.id,
-                        content: property.content, // Use content for property name
-                        price: property.price, // Store original purchase price
-                        ownerId: player.id,
-                        currentUpgradeLevel: property.currentUpgradeLevel // Store initial upgrade level
-                    };
+                        const cellElement = document.querySelector(`.${property.id}`);
+                        if (cellElement) {
+                            updateBoardCellDisplay(cellElement, property);
+                        }
 
-                    // Find the cell element to update its color bar
-                    const cellElement = document.querySelector(`.${property.id}`);
-                    if (cellElement) {
-                        updateBoardCellDisplay(cellElement, property); // Update the cell display after purchase
+                        updatePlayersList();
+                        updateMyPropertiesList();
+                        alert(getTranslation('playerInDebt', player.name, player.money));
+                        showMoneyEffect(player.userId, property.price, 'loss');
+                        buyModal.classList.add('hidden');
+                        console.log(`[Buy Option Debug] ${Date.now()}: Player ${player.name} bought ${property.content} and went into debt. Money: ${player.money}.`);
                     }
+                    checkPlayerDebtStatus(); // Check debt status after purchase
+                    await updateGameInFirestore(); // Update Firestore
+                    resolve(); // Resolve the promise
+                };
 
-
-                    updatePlayersList();
-                    updateMyPropertiesList();
-                    alert(getTranslation('playerBought', player.name, property.displayName || property.content, property.price));
-                    showMoneyEffect(player.id, property.price, 'loss'); // Visual effect for money loss
+                cancelButton.onclick = async () => {
                     buyModal.classList.add('hidden');
-                    console.log(`[Buy Option Debug] ${Date.now()}: Player ${player.name} bought ${property.content}. Money: ${player.money}.`);
-                } else {
-                    // Allow buying with negative money, but player becomes indebted
-                    player.money -= property.price;
-                    property.owner = player.id;
-                    gameState.boardProperties[property.id] = {
-                        id: property.id,
-                        content: property.content,
-                        price: property.price,
-                        ownerId: player.id,
-                        currentUpgradeLevel: property.currentUpgradeLevel
-                    };
-
-                    const cellElement = document.querySelector(`.${property.id}`);
-                    if (cellElement) {
-                        updateBoardCellDisplay(cellElement, property);
-                    }
-
-                    updatePlayersList();
-                    updateMyPropertiesList();
-                    alert(getTranslation('playerInDebt', player.name, player.money));
-                    showMoneyEffect(player.id, property.price, 'loss');
-                    buyModal.classList.add('hidden');
-                    console.log(`[Buy Option Debug] ${Date.now()}: Player ${player.name} bought ${property.content} and went into debt. Money: ${player.money}.`);
-                }
-                checkPlayerDebtStatus(); // Check debt status after purchase
-                // IMPORTANT: Do NOT call endTurn() here. The "END" button handles turn progression.
-            };
-
-            cancelButton.onclick = () => {
-                buyModal.classList.add('hidden');
-                alert(getTranslation('playerPassed', player.name, property.displayName || property.content));
-                console.log(`[Buy Option Debug] ${Date.now()}: Player ${player.name} passed on ${property.content}.`);
-                checkPlayerDebtStatus(); // Check debt status (in case they were already indebted)
-                // IMPORTANT: Do NOT call endTurn() here. The "END" button handles turn progression.
-            };
+                    alert(getTranslation('playerPassed', player.name, displayName));
+                    console.log(`[Buy Option Debug] ${Date.now()}: Player ${player.name} passed on ${property.content}.`);
+                    checkPlayerDebtStatus(); // Check debt status (in case they were already indebted)
+                    await updateGameInFirestore(); // Update Firestore
+                    resolve(); // Resolve the promise
+                };
+            });
         }
 
         // Function to check if a player owns all cities of a specific country
@@ -2370,7 +2510,7 @@
             if (countryCities.length === 0) {
                 return false; // No cities for this country defined
             }
-            return countryCities.every(city => gameState.boardProperties[city.id] && gameState.boardProperties[city.id].ownerId === player.id);
+            return countryCities.every(city => gameState.boardProperties[city.id] && gameState.boardProperties[city.id].ownerId === player.userId);
         }
 
         // Function to display property details modal
@@ -2388,7 +2528,7 @@
             const upgradeSection = document.getElementById('upgradeSection');
 
             const property = gameState.boardCellsInfo.find(cell => cell.id === cellId);
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId);
 
             if (!property) {
                 console.error("Property not found for details:", cellId);
@@ -2396,7 +2536,8 @@
             }
 
             // Populate modal content
-            propertyDetailName.textContent = property.displayName || property.content; // Use displayName for modal title
+            const displayName = gameState.currentLanguage === 'ar' ? property.displayName_ar : property.displayName_en;
+            propertyDetailName.textContent = displayName; // Use displayName for modal title
             propertyDetailPrice.textContent = `$${property.price}`;
 
             // Set icon (flag or emoji)
@@ -2428,7 +2569,7 @@
             });
 
             // Show upgrade section only if owned by current player and it's a city
-            if (property.owner === currentPlayer.id && property.type === 'city') {
+            if (property.owner === currentPlayer.userId && property.type === 'city') {
                 upgradeSection.classList.remove('hidden');
                 currentUpgradeLevelDisplay.textContent = `${getTranslation('level')} ${property.currentUpgradeLevel}`; // Display "Level X"
 
@@ -2465,15 +2606,15 @@
             }
 
             propertyDetailsModal.classList.remove('hidden');
-            console.log(`[Property Details Debug] ${Date.now()}: Property details modal displayed for: ${property.displayName || property.content}.`);
+            console.log(`[Property Details Debug] ${Date.now()}: Property details modal displayed for: ${displayName}.`);
         }
 
         // Handle property upgrade
-        function handleUpgradeProperty(propertyId) {
+        async function handleUpgradeProperty(propertyId) {
             const property = gameState.boardCellsInfo.find(cell => cell.id === propertyId);
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId);
 
-            if (!property || property.owner !== currentPlayer.id || property.type !== 'city') { // Ensure it's a city owned by current player
+            if (!property || property.owner !== currentPlayer.userId || property.type !== 'city') { // Ensure it's a city owned by current player
                 alert(getTranslation("notOwnedOrExists"));
                 console.warn(`[Upgrade Debug] ${Date.now()}: Upgrade failed. Not owned by current player or not a city.`);
                 return;
@@ -2518,18 +2659,20 @@
                 updateBoardCellDisplay(cellElement, property); // Update the cell display after upgrade
             }
 
-            alert(getTranslation('playerUpgraded', currentPlayer.name, property.displayName || property.content, property.currentUpgradeLevel));
-            showMoneyEffect(currentPlayer.id, upgradeCost, 'loss'); // Visual effect for money loss
+            const displayName = gameState.currentLanguage === 'ar' ? property.displayName_ar : property.displayName_en;
+            alert(getTranslation('playerUpgraded', currentPlayer.name, displayName, property.currentUpgradeLevel));
+            showMoneyEffect(currentPlayer.userId, upgradeCost, 'loss'); // Visual effect for money loss
             checkPlayerDebtStatus(); // Check debt status after upgrade
+            await updateGameInFirestore(); // Update Firestore
             console.log(`[Upgrade Debug] ${Date.now()}: Player ${currentPlayer.name} upgraded ${property.content} to level ${property.currentUpgradeLevel}. Cost: $${upgradeCost}. Money: ${currentPlayer.money}.`);
         }
 
         // Handle property downgrade
-        function handleDowngradeProperty(propertyId) {
+        async function handleDowngradeProperty(propertyId) {
             const property = gameState.boardCellsInfo.find(cell => cell.id === propertyId);
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId);
 
-            if (!property || property.owner !== currentPlayer.id || property.type !== 'city') { // Ensure it's a city owned by current player
+            if (!property || property.owner !== currentPlayer.userId || property.type !== 'city') { // Ensure it's a city owned by current player
                 alert(getTranslation("notOwnedOrExists"));
                 console.warn(`[Downgrade Debug] ${Date.now()}: Downgrade failed. Not owned by current player or not a city.`);
                 return;
@@ -2562,19 +2705,21 @@
                 updateBoardCellDisplay(cellElement, property); // Update the cell display after downgrade
             }
 
-            alert(getTranslation('playerDowngraded', currentPlayer.name, property.displayName || property.content, refundedAmount, property.currentUpgradeLevel));
-            showMoneyEffect(currentPlayer.id, refundedAmount, 'gain'); // Visual effect for money gain
+            const displayName = gameState.currentLanguage === 'ar' ? property.displayName_ar : property.displayName_en;
+            alert(getTranslation('playerDowngraded', currentPlayer.name, displayName, refundedAmount, property.currentUpgradeLevel));
+            showMoneyEffect(currentPlayer.userId, refundedAmount, 'gain'); // Visual effect for money gain
             checkPlayerDebtStatus(); // Check debt status after downgrade
+            await updateGameInFirestore(); // Update Firestore
             console.log(`[Downgrade Debug] ${Date.now()}: Player ${currentPlayer.name} downgraded ${property.content} to level ${property.currentUpgradeLevel}. Refunded: $${refundedAmount}. Money: ${currentPlayer.money}.`);
         }
 
 
         // Function to end the current player's turn and switch to the next
-        function endTurn() {
+        async function endTurn() {
             const rollDiceButton = document.getElementById('rollDiceButton');
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId); // Ensure current player is the one whose turn it is
 
-            console.log(`[End Turn Debug] ${Date.now()}: endTurn called for ${currentPlayer?.name || 'unknown player'} (ID: ${currentPlayer?.id}). Money: ${currentPlayer?.money}.`);
+            console.log(`[End Turn Debug] ${Date.now()}: endTurn called for ${currentPlayer?.name || 'unknown player'} (ID: ${currentPlayer?.userId}). Money: ${currentPlayer?.money}.`);
 
             // Check if the current player is indebted (money is negative)
             if (currentPlayer.money < 0) {
@@ -2600,26 +2745,27 @@
             gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
             const nextPlayer = gameState.players[gameState.currentPlayerIndex];
             alert(getTranslation('turnEnded', currentPlayer.name, nextPlayer.name));
-            console.log(`[End Turn Debug] ${Date.now()}: Turn ended for ${currentPlayer.name}. It's now ${nextPlayer.name}'s turn (ID: ${nextPlayer.id}). New current player index: ${gameState.currentPlayerIndex}.`);
+            console.log(`[End Turn Debug] ${Date.now()}: Turn ended for ${currentPlayer.name}. It's now ${nextPlayer.name}'s turn (ID: ${nextPlayer.userId}). New current player index: ${gameState.currentPlayerIndex}.`);
             updatePlayersList(); // Re-render to update money display and highlight
             updateMyPropertiesList(); // Update properties for the new current player
             checkPlayerDebtStatus(); // Check next player's debt status to disable button if needed
 
             // Start the timer for the next player
             startTurnTimer();
+            await updateGameInFirestore(); // Update Firestore
         }
 
         // --- Trade System Functions ---
 
         /**
          * Populates the requested properties list based on the selected recipient.
-         * @param {number} recipientId - The ID of the player whose properties are to be listed.
+         * @param {string} recipientUserId - The userId of the player whose properties are to be listed.
          */
-        function updateRequestedPropertiesForRecipient(recipientId) {
+        function updateRequestedPropertiesForRecipient(recipientUserId) {
             const requestedPropertiesList = document.getElementById('requestedPropertiesList');
             requestedPropertiesList.innerHTML = ''; // Clear current list
 
-            const recipientProperties = Object.values(gameState.boardProperties).filter(prop => prop.ownerId === recipientId);
+            const recipientProperties = Object.values(gameState.boardProperties).filter(prop => prop.ownerId === recipientUserId);
 
             if (recipientProperties.length > 0) {
                 recipientProperties.forEach(prop => {
@@ -2627,16 +2773,21 @@
                     listItem.className = 'flex items-center gap-2';
                     const originalCell = gameState.boardCellsInfo.find(cell => cell.id === prop.id);
                     let iconHtml = '';
-                    if (originalCell && originalCell.type === 'city') {
-                        iconHtml = `${getCountryFlagImage(originalCell.country)}`;
-                    } else if (originalCell && originalCell.type === 'company') {
-                        iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                    let displayName = '';
+                    if (originalCell) {
+                        displayName = gameState.currentLanguage === 'ar' ? originalCell.displayName_ar : originalCell.displayName_en;
+                        if (originalCell.type === 'city') {
+                            iconHtml = `${getCountryFlagImage(originalCell.country)}`;
+                        } else if (originalCell.type === 'company') {
+                            iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                        }
                     }
+
                     // Modified: Wrap icon and text in a flex div within the label
                     listItem.innerHTML = `
                         <input type="checkbox" id="request-prop-${prop.id}" value="${prop.id}" class="form-checkbox h-4 w-4 text-purple-600">
                         <label for="request-prop-${prop.id}" class="text-gray-300 text-sm flex items-center gap-1">
-                            ${iconHtml} <span>${originalCell.displayName || originalCell.content}</span>
+                            ${iconHtml} <span>${displayName}</span>
                         </label>
                     `;
                     requestedPropertiesList.appendChild(listItem);
@@ -2651,10 +2802,10 @@
 
         /**
          * Opens the trade creation modal, populating it with available options.
-         * @param {number} senderPlayerId - The ID of the player initiating the trade.
+         * @param {string} senderPlayerUserId - The userId of the player initiating the trade.
          * @param {object} [existingOffer=null] - Optional: An existing trade offer object to pre-fill the modal for modification.
          */
-        function openTradeCreationModal(senderPlayerId, existingOffer = null) {
+        function openTradeCreationModal(senderPlayerUserId, existingOffer = null) {
             const tradeCreationModal = document.getElementById('tradeCreationModal');
             const tradeRecipientSelect = document.getElementById('tradeRecipient');
             const offeredPropertiesList = document.getElementById('offeredPropertiesList');
@@ -2662,10 +2813,10 @@
             const requestMoneyInput = document.getElementById('requestMoney');
             const tradeOfferIdToModify = document.getElementById('tradeOfferIdToModify');
 
-            const currentPlayer = gameState.players.find(p => p.id === senderPlayerId);
+            const currentPlayer = gameState.players.find(p => p.userId === senderPlayerUserId);
 
             if (!currentPlayer) {
-                console.error("Sender player not found for trade:", senderPlayerId);
+                console.error("Sender player not found for trade:", senderPlayerUserId);
                 return;
             }
 
@@ -2677,7 +2828,7 @@
             tradeOfferIdToModify.value = ''; // Clear ID for new offers
 
             // Populate trade recipient dropdown (all players except the sender)
-            const otherPlayers = gameState.players.filter(p => p.id !== senderPlayerId);
+            const otherPlayers = gameState.players.filter(p => p.userId !== senderPlayerUserId);
             if (otherPlayers.length === 0) {
                 alert(getTranslation("noOtherPlayers")); // Assuming a translation key for this
                 tradeCreationModal.classList.add('hidden');
@@ -2686,35 +2837,40 @@
 
             otherPlayers.forEach(player => {
                 const option = document.createElement('option');
-                option.value = player.id;
+                option.value = player.userId;
                 option.textContent = player.name;
                 tradeRecipientSelect.appendChild(option);
             });
 
             // Set up the change listener for the recipient dropdown
             tradeRecipientSelect.onchange = (event) => {
-                const selectedRecipientId = parseInt(event.target.value);
+                const selectedRecipientId = event.target.value;
                 updateRequestedPropertiesForRecipient(selectedRecipientId);
             };
 
             // Populate offered properties (current player's properties)
-            const senderProperties = Object.values(gameState.boardProperties).filter(prop => prop.ownerId === senderPlayerId);
+            const senderProperties = Object.values(gameState.boardProperties).filter(prop => prop.ownerId === senderPlayerUserId);
             if (senderProperties.length > 0) {
                 senderProperties.forEach(prop => {
                     const listItem = document.createElement('div');
                     listItem.className = 'flex items-center gap-2';
                     const originalCell = gameState.boardCellsInfo.find(cell => cell.id === prop.id);
                     let iconHtml = '';
-                    if (originalCell && originalCell.type === 'city') {
-                        iconHtml = `${getCountryFlagImage(originalCell.country)}`;
-                    } else if (originalCell && originalCell.type === 'company') {
-                        iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                    let displayName = '';
+                    if (originalCell) {
+                        displayName = gameState.currentLanguage === 'ar' ? originalCell.displayName_ar : originalCell.displayName_en;
+                        if (originalCell.type === 'city') {
+                            iconHtml = `${getCountryFlagImage(originalCell.country)}`;
+                        } else if (originalCell.type === 'company') {
+                            iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                        }
                     }
+
                     // Modified: Wrap icon and text in a flex div within the label
                     listItem.innerHTML = `
                         <input type="checkbox" id="offer-prop-${prop.id}" value="${prop.id}" class="form-checkbox h-4 w-4 text-purple-600">
                         <label for="offer-prop-${prop.id}" class="text-gray-300 text-sm flex items-center gap-1">
-                            ${iconHtml} <span>${originalCell.displayName || originalCell.content}</span>
+                            ${iconHtml} <span>${displayName}</span>
                         </label>
                     `;
                     offeredPropertiesList.appendChild(listItem);
@@ -2746,7 +2902,7 @@
                 updateRequestedPropertiesForRecipient(existingOffer.recipientId);
                 setTimeout(() => { // Small delay to ensure properties are rendered
                     existingOffer.requestedProperties.forEach(propId => {
-                        const checkbox = document.getElementById(`request-prop-${prop.id}`);
+                        const checkbox = document.getElementById(`request-prop-${propId}`);
                         if (checkbox) checkbox.checked = true;
                     });
                 }, 50);
@@ -2755,20 +2911,20 @@
                 tradeCreationModal.querySelector('h3').textContent = getTranslation('createTradeOffer');
                 // Populate requested properties for the initially selected recipient (only for new offers)
                 if (tradeRecipientSelect.value) {
-                    updateRequestedPropertiesForRecipient(parseInt(tradeRecipientSelect.value));
+                    updateRequestedPropertiesForRecipient(tradeRecipientSelect.value);
                 }
             }
 
             tradeCreationModal.classList.remove('hidden');
-            console.log(`[Trade Debug] ${Date.now()}: Trade creation modal opened for sender ${senderPlayerId}. Existing offer: ${existingOffer ? 'yes' : 'no'}.`);
+            console.log(`[Trade Debug] ${Date.now()}: Trade creation modal opened for sender ${senderPlayerUserId}. Existing offer: ${existingOffer ? 'yes' : 'no'}.`);
         }
 
         /**
          * Sends the trade offer based on the values in the trade creation modal.
          */
-        function sendTradeOffer() {
-            const senderPlayer = gameState.players[gameState.currentPlayerIndex]; // The current player is the sender
-            const recipientId = parseInt(document.getElementById('tradeRecipient').value);
+        async function sendTradeOffer() {
+            const senderPlayer = gameState.players.find(p => p.userId === currentUserId); // The current user is the sender
+            const recipientId = document.getElementById('tradeRecipient').value;
             const offeredMoney = parseInt(document.getElementById('offerMoney').value);
             const requestedMoney = parseInt(document.getElementById('requestMoney').value);
             const tradeOfferId = document.getElementById('tradeOfferIdToModify').value; // Get ID if modifying
@@ -2797,7 +2953,7 @@
 
             // Validate offered properties are actually owned by sender
             const invalidOfferedProps = offeredProperties.filter(propId =>
-                !gameState.boardProperties[propId] || gameState.boardProperties[propId].ownerId !== senderPlayer.id
+                !gameState.boardProperties[propId] || gameState.boardProperties[propId].ownerId !== senderPlayer.userId
             );
             if (invalidOfferedProps.length > 0) {
                 alert(getTranslation("onlyOwnProperties"));
@@ -2816,8 +2972,8 @@
             }
 
             const newTradeOffer = {
-                offerId: tradeOfferId ? parseInt(tradeOfferId) : Date.now(), // Reuse ID if modifying, otherwise new ID
-                senderId: senderPlayer.id,
+                offerId: tradeOfferId ? tradeOfferId : Date.now().toString(), // Reuse ID if modifying, otherwise new ID
+                senderId: senderPlayer.userId,
                 recipientId: recipientId,
                 offeredMoney: offeredMoney,
                 offeredProperties: offeredProperties,
@@ -2828,19 +2984,20 @@
 
             // If modifying, remove the old offer before adding the new one
             if (tradeOfferId) {
-                gameState.pendingTradeOffers = gameState.pendingTradeOffers.filter(o => o.offerId !== parseInt(tradeOfferId));
+                gameState.pendingTradeOffers = gameState.pendingTradeOffers.filter(o => o.offerId !== tradeOfferId);
                 console.log(`[Trade Debug] ${Date.now()}: Modifying existing trade offer ID: ${tradeOfferId}.`);
             }
 
             gameState.pendingTradeOffers.push(newTradeOffer);
             document.getElementById('tradeCreationModal').classList.add('hidden');
-            alert(getTranslation('offerSent', gameState.players.find(p => p.id === recipientId).name));
+            alert(getTranslation('offerSent', gameState.players.find(p => p.userId === recipientId).name));
             console.log(`[Trade Debug] ${Date.now()}: Trade offer sent. Offer details:`, newTradeOffer);
 
+            await updateGameInFirestore(); // Update Firestore
             updatePendingTradesList(); // Update the public list
 
             // Immediately display the offer to the recipient if it's their turn or they are the current player
-            if (gameState.players[gameState.currentPlayerIndex].id === recipientId) {
+            if (gameState.players[gameState.currentPlayerIndex].userId === recipientId) {
                 displayIncomingTradeOffer(newTradeOffer);
             }
         }
@@ -2857,14 +3014,14 @@
             const requestSentMoney = document.getElementById('requestSentMoney');
             const requestSentProperties = document.getElementById('requestSentProperties');
 
-            const sender = gameState.players.find(p => p.id === offer.senderId);
+            const sender = gameState.players.find(p => p.userId === offer.senderId);
             if (!sender) {
                 console.error(`[Trade Debug] ${Date.now()}: Sender not found for incoming trade offer.`);
                 return;
             }
 
             gameState.currentActiveTradeOffer = offer; // Store the active offer
-            console.log(`[Trade Debug] ${Date.now()}: Displaying incoming trade offer from ${sender.name} (ID: ${sender.id}). Offer ID: ${offer.offerId}.`);
+            console.log(`[Trade Debug] ${Date.now()}: Displaying incoming trade offer from ${sender.name} (ID: ${sender.userId}). Offer ID: ${offer.offerId}.`);
 
             // Remove flag from sender name in incoming trade modal
             offerSenderName.textContent = sender.name;
@@ -2879,12 +3036,15 @@
                         const listItem = document.createElement('li');
                         listItem.classList.add('flex', 'items-center', 'gap-1'); // Added flex for horizontal alignment
                         let iconHtml = '';
+                        let displayName = '';
                         if (prop.type === 'city') {
                             iconHtml = `${getCountryFlagImage(prop.country)}`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         } else if (prop.type === 'company') {
                             iconHtml = `<span class="text-lg">${getCompanyEmoji(prop.content)}</span>`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         }
-                        listItem.innerHTML = `${iconHtml} <span>${prop.displayName || prop.content}</span>`; // Wrapped text in span
+                        listItem.innerHTML = `${iconHtml} <span>${displayName}</span>`; // Wrapped text in span
                         offerReceivedProperties.appendChild(listItem);
                     }
                 });
@@ -2900,12 +3060,15 @@
                         const listItem = document.createElement('li');
                         listItem.classList.add('flex', 'items-center', 'gap-1'); // Added flex for horizontal alignment
                         let iconHtml = '';
+                        let displayName = '';
                         if (prop.type === 'city') {
                             iconHtml = `${getCountryFlagImage(prop.country)}`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         } else if (prop.type === 'company') {
                             iconHtml = `<span class="text-lg">${getCompanyEmoji(prop.content)}</span>`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         }
-                        listItem.innerHTML = `${iconHtml} <span>${prop.displayName || prop.content}</span>`; // Wrapped text in span
+                        listItem.innerHTML = `${iconHtml} <span>${displayName}</span>`; // Wrapped text in span
                         requestSentProperties.appendChild(listItem);
                     }
                 });
@@ -2919,15 +3082,15 @@
         /**
          * Handles the acceptance of the current active trade offer.
          */
-        function acceptTrade() {
+        async function acceptTrade() {
             const offer = gameState.currentActiveTradeOffer;
             if (!offer) {
                 console.error(`[Trade Debug] ${Date.now()}: No active trade offer to accept.`);
                 return;
             }
 
-            const sender = gameState.players.find(p => p.id === offer.senderId);
-            const recipient = gameState.players.find(p => p.id === offer.recipientId);
+            const sender = gameState.players.find(p => p.userId === offer.senderId);
+            const recipient = gameState.players.find(p => p.userId === offer.recipientId);
 
             if (!sender || !recipient) {
                 alert(getTranslation("tradeError"));
@@ -2952,7 +3115,7 @@
 
             // Check if sender still owns the properties they are offering
             const senderMissingProps = offer.offeredProperties.filter(propId =>
-                !gameState.boardProperties[propId] || gameState.boardProperties[propId].ownerId !== sender.id
+                !gameState.boardProperties[propId] || gameState.boardProperties[propId].ownerId !== sender.userId
             );
             if (senderMissingProps.length > 0) {
                 alert(getTranslation('senderMissingProps', sender.name));
@@ -2963,7 +3126,7 @@
 
             // Check if recipient still owns the properties being requested from them
             const recipientMissingProps = offer.requestedProperties.filter(propId =>
-                !gameState.boardProperties[propId] || gameState.boardProperties[propId].ownerId !== recipient.id
+                !gameState.boardProperties[propId] || gameState.boardProperties[propId].ownerId !== recipient.userId
             );
             if (recipientMissingProps.length > 0) {
                 alert(getTranslation('recipientMissingProps', recipient.name));
@@ -2975,15 +3138,15 @@
             // Perform money transfer
             sender.money -= offer.offeredMoney;
             recipient.money += offer.offeredMoney;
-            showMoneyEffect(sender.id, offer.offeredMoney, 'loss');
-            showMoneyEffect(recipient.id, offer.offeredMoney, 'gain');
+            showMoneyEffect(sender.userId, offer.offeredMoney, 'loss');
+            showMoneyEffect(recipient.userId, offer.offeredMoney, 'gain');
             console.log(`[Trade Debug] ${Date.now()}: Money transfer: ${sender.name} paid $${offer.offeredMoney} to ${recipient.name}.`);
 
 
             sender.money += offer.requestedMoney;
             recipient.money -= offer.requestedMoney;
-            showMoneyEffect(sender.id, offer.requestedMoney, 'gain');
-            showMoneyEffect(recipient.id, offer.requestedMoney, 'loss');
+            showMoneyEffect(sender.userId, offer.requestedMoney, 'gain');
+            showMoneyEffect(recipient.userId, offer.requestedMoney, 'loss');
             console.log(`[Trade Debug] ${Date.now()}: Money transfer: ${recipient.name} paid $${offer.requestedMoney} to ${sender.name}.`);
 
 
@@ -2991,8 +3154,8 @@
             offer.offeredProperties.forEach(propId => {
                 const prop = gameState.boardCellsInfo.find(cell => cell.id === propId);
                 if (prop) {
-                    prop.owner = recipient.id;
-                    gameState.boardProperties[propId].ownerId = recipient.id;
+                    prop.owner = recipient.userId;
+                    gameState.boardProperties[propId].ownerId = recipient.userId;
                     // Update property color bar on the board
                     const cellElement = document.querySelector(`.${prop.id}`);
                     if (cellElement) {
@@ -3005,8 +3168,8 @@
             offer.requestedProperties.forEach(propId => {
                 const prop = gameState.boardCellsInfo.find(cell => cell.id === propId);
                 if (prop) {
-                    prop.owner = sender.id;
-                    gameState.boardProperties[propId].ownerId = sender.id;
+                    prop.owner = sender.userId;
+                    gameState.boardProperties[propId].ownerId = sender.userId;
                     // Update property color bar on the board
                     const cellElement = document.querySelector(`.${prop.id}`);
                     if (cellElement) {
@@ -3028,20 +3191,21 @@
             updateMyPropertiesList(); // Update properties list for both players
             updatePendingTradesList(); // Update the public list
             checkPlayerDebtStatus(); // Check debt status after trade
+            await updateGameInFirestore(); // Update Firestore
         }
 
         /**
          * Handles the decline of the current active trade offer.
          */
-        function declineTrade() {
+        async function declineTrade() {
             const offer = gameState.currentActiveTradeOffer;
             if (!offer) {
                 console.error(`[Trade Debug] ${Date.now()}: No active trade offer to decline.`);
                 return;
             }
 
-            const sender = gameState.players.find(p => p.id === offer.senderId);
-            const recipient = gameState.players.find(p => p.id === offer.recipientId);
+            const sender = gameState.players.find(p => p.userId === offer.senderId);
+            const recipient = gameState.players.find(p => p.userId === offer.recipientId);
 
             gameState.pendingTradeOffers = gameState.pendingTradeOffers.filter(o => o.offerId !== offer.offerId);
             gameState.currentActiveTradeOffer = null; // Clear active offer
@@ -3050,22 +3214,26 @@
             document.getElementById('tradeDetailsViewModal').classList.add('hidden'); // Hide if open
             alert(getTranslation('tradeDeclined', sender.name, recipient.name));
             console.log(`[Trade Debug] ${Date.now()}: Trade offer ID ${offer.offerId} declined.`);
+            await updateGameInFirestore(); // Update Firestore
             updatePendingTradesList(); // Update the public list
             checkPlayerDebtStatus(); // Check debt status after trade
         }
 
         /**
          * Handles the cancellation of a trade offer by the sender.
-         * @param {number} offerId - The ID of the trade offer to cancel.
+         * @param {string} offerId - The ID of the trade offer to cancel.
          */
-        function cancelTrade(offerId) {
+        async function cancelTrade(offerId) {
             const offerIndex = gameState.pendingTradeOffers.findIndex(o => o.offerId === offerId);
             if (offerIndex > -1) {
                 const cancelledOffer = gameState.pendingTradeOffers.splice(offerIndex, 1)[0];
-                alert(getTranslation('tradeCancelled', gameState.players.find(p => p.id === cancelledOffer.senderId).name, gameState.players.find(p => p.id === cancelledOffer.recipientId).name));
+                const sender = gameState.players.find(p => p.userId === cancelledOffer.senderId);
+                const recipient = gameState.players.find(p => p.userId === cancelledOffer.recipientId);
+                alert(getTranslation('tradeCancelled', sender.name, recipient.name));
                 gameState.currentActiveTradeOffer = null; // Clear active offer if it was the one cancelled
                 document.getElementById('tradeDetailsViewModal').classList.add('hidden'); // Hide if open
                 console.log(`[Trade Debug] ${Date.now()}: Trade offer ID ${offerId} cancelled by sender.`);
+                await updateGameInFirestore(); // Update Firestore
                 updatePendingTradesList(); // Update the public list
                 checkPlayerDebtStatus(); // Check debt status after cancellation
             } else {
@@ -3075,7 +3243,7 @@
 
         /**
          * Displays the details of a trade offer in a view-only modal, with conditional action buttons.
-         * @param {number} offerId - The ID of the trade offer to display.
+         * @param {string} offerId - The ID of the trade offer to display.
          */
         function displayTradeDetailsView(offerId) {
             const offer = gameState.pendingTradeOffers.find(o => o.offerId === offerId);
@@ -3094,9 +3262,9 @@
             const tradeDetailsRequestedProperties = document.getElementById('tradeDetailsRequestedProperties');
             const tradeDetailsActionButtons = document.getElementById('tradeDetailsActionButtons');
 
-            const sender = gameState.players.find(p => p.id === offer.senderId);
-            const recipient = gameState.players.find(p => p.id === offer.recipientId);
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const sender = gameState.players.find(p => p.userId === offer.senderId);
+            const recipient = gameState.players.find(p => p.userId === offer.recipientId);
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId);
 
             // Display only names in the details view, without flags
             tradeDetailsSenderName.textContent = sender ? sender.name : 'Unknown';
@@ -3113,12 +3281,15 @@
                         const listItem = document.createElement('li');
                         listItem.classList.add('flex', 'items-center', 'gap-1'); // Added flex for horizontal alignment
                         let iconHtml = '';
+                        let displayName = '';
                         if (prop.type === 'city') {
                             iconHtml = `${getCountryFlagImage(prop.country)}`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         } else if (prop.type === 'company') {
                             iconHtml = `<span class="text-lg">${getCompanyEmoji(prop.content)}</span>`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         }
-                        listItem.innerHTML = `${iconHtml} <span>${prop.displayName || prop.content}</span>`; // Wrapped text in span
+                        listItem.innerHTML = `${iconHtml} <span>${displayName}</span>`; // Wrapped text in span
                         tradeDetailsOfferedProperties.appendChild(listItem);
                     }
                 });
@@ -3135,12 +3306,15 @@
                         const listItem = document.createElement('li');
                         listItem.classList.add('flex', 'items-center', 'gap-1'); // Added flex for horizontal alignment
                         let iconHtml = '';
+                        let displayName = '';
                         if (prop.type === 'city') {
                             iconHtml = `${getCountryFlagImage(prop.country)}`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         } else if (prop.type === 'company') {
                             iconHtml = `<span class="text-lg">${getCompanyEmoji(prop.content)}</span>`;
+                            displayName = gameState.currentLanguage === 'ar' ? prop.displayName_ar : prop.displayName_en;
                         }
-                        listItem.innerHTML = `${iconHtml} <span>${prop.displayName || prop.content}</span>`; // Wrapped text in span
+                        listItem.innerHTML = `${iconHtml} <span>${displayName}</span>`; // Wrapped text in span
                         tradeDetailsRequestedProperties.appendChild(listItem);
                     }
                 });
@@ -3152,7 +3326,7 @@
             tradeDetailsActionButtons.innerHTML = '';
             gameState.currentActiveTradeOffer = offer; // Set the active offer for accept/decline logic
 
-            if (currentPlayer.id === offer.recipientId) {
+            if (currentPlayer.userId === offer.recipientId) {
                 // Recipient actions
                 const acceptBtn = document.createElement('button');
                 acceptBtn.className = 'btn-primary py-2 px-6 rounded-md';
@@ -3172,9 +3346,9 @@
                 modifyBtn.onclick = () => {
                     document.getElementById('tradeDetailsViewModal').classList.add('hidden');
                     // When recipient modifies, it's a counter-offer from recipient to sender
-                    openTradeCreationModal(currentPlayer.id, {
+                    openTradeCreationModal(currentPlayer.userId, {
                         offerId: offer.offerId, // Keep original offerId for tracking purposes if needed, or generate new
-                        senderId: currentPlayer.id,
+                        senderId: currentPlayer.userId,
                         recipientId: offer.senderId,
                         offeredMoney: offer.requestedMoney, // What recipient was asked for, they now offer
                         offeredProperties: offer.requestedProperties, // What recipient was asked for, they now offer
@@ -3184,14 +3358,14 @@
                 };
                 tradeDetailsActionButtons.appendChild(modifyBtn);
 
-            } else if (currentPlayer.id === offer.senderId) {
+            } else if (currentPlayer.userId === offer.senderId) {
                 // Sender actions
                 const modifyBtn = document.createElement('button');
                 modifyBtn.className = 'btn-secondary py-2 px-6 rounded-md';
                 modifyBtn.textContent = getTranslation('modify');
                 modifyBtn.onclick = () => {
                     document.getElementById('tradeDetailsViewModal').classList.add('hidden');
-                    openTradeCreationModal(currentPlayer.id, offer); // Pass the existing offer to pre-fill
+                    openTradeCreationModal(currentPlayer.userId, offer); // Pass the existing offer to pre-fill
                 };
                 tradeDetailsActionButtons.appendChild(modifyBtn);
 
@@ -3203,7 +3377,7 @@
             }
 
             tradeDetailsViewModal.classList.remove('hidden');
-            console.log(`[Trade Debug] ${Date.now()}: Trade details view modal displayed for offer ID: ${offerId}. Current player role: ${currentPlayer.id === offer.recipientId ? 'Recipient' : currentPlayer.id === offer.senderId ? 'Sender' : 'Viewer'}.`);
+            console.log(`[Trade Debug] ${Date.now()}: Trade details view modal displayed for offer ID: ${offer.offerId}. Current player role: ${currentPlayer.userId === offer.recipientId ? 'Recipient' : currentPlayer.userId === offer.senderId ? 'Sender' : 'Viewer'}.`);
         }
 
         /**
@@ -3216,8 +3390,8 @@
 
             // Filter out trades involving players who are no longer in the game
             gameState.pendingTradeOffers = gameState.pendingTradeOffers.filter(offer =>
-                gameState.players.some(p => p.id === offer.senderId) &&
-                gameState.players.some(p => p.id === offer.recipientId)
+                gameState.players.some(p => p.userId === offer.senderId) &&
+                gameState.players.some(p => p.userId === offer.recipientId)
             );
 
             pendingTradesCountElem.textContent = gameState.pendingTradeOffers.length;
@@ -3230,8 +3404,8 @@
                 pendingTradesListElem.appendChild(noTradesMessage);
             } else {
                 gameState.pendingTradeOffers.forEach(offer => {
-                    const sender = gameState.players.find(p => p.id === offer.senderId);
-                    const recipient = gameState.players.find(p => p.id === offer.recipientId);
+                    const sender = gameState.players.find(p => p.userId === offer.senderId);
+                    const recipient = gameState.players.find(p => p.userId === offer.recipientId);
 
                     const senderName = sender ? sender.name : 'Unknown';
                     const recipientName = recipient ? recipient.name : 'Unknown';
@@ -3240,8 +3414,8 @@
                     tradeItem.classList.add('pending-trade-item');
                     tradeItem.innerHTML = `
                         <span class="trade-summary">${senderName} ↔ ${recipientName}</span>
-                        <span class="trade-details">${getTranslation('offer')}: $${offer.offeredMoney} + ${offer.offeredProperties.length} ${getTranslation('prop(s)')}</span>
-                        <span class="trade-details">${getTranslation('request')}: $${offer.requestedMoney} + ${offer.requestedProperties.length} ${getTranslation('prop(s)')}</span>
+                        <span class="trade-details">${getTranslation('offer')}: $${offer.offeredMoney} + ${offer.offeredProperties.length} ${getTranslation('prop_s_')}</span>
+                        <span class="trade-details">${getTranslation('request')}: $${offer.requestedMoney} + ${offer.requestedProperties.length} ${getTranslation('prop_s_')}</span>
                     `;
                     tradeItem.onclick = () => displayTradeDetailsView(offer.offerId);
                     pendingTradesListElem.appendChild(tradeItem);
@@ -3255,12 +3429,12 @@
         function openSellPropertyModal() {
             const sellPropertyModal = document.getElementById('sellPropertyModal');
             const propertiesToSellList = document.getElementById('propertiesToSellList');
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId);
 
             propertiesToSellList.innerHTML = ''; // Clear current list
 
             const playerProperties = Object.values(gameState.boardProperties).filter(
-                prop => prop.ownerId === currentPlayer.id
+                prop => prop.ownerId === currentPlayer.userId
             );
             console.log(`[Sell Property Debug] ${Date.now()}: Opening sell property modal for ${currentPlayer.name}. Properties owned: ${playerProperties.length}.`);
 
@@ -3279,15 +3453,20 @@
                     const listItem = document.createElement('div');
                     listItem.className = 'flex items-center gap-2 py-1';
                     let iconHtml = '';
-                    if (originalCell && originalCell.type === 'city') {
-                        iconHtml = `${getCountryFlagImage(originalCell.country)}`;
-                    } else if (originalCell && originalCell.type === 'company') {
-                        iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                    let displayName = '';
+                    if (originalCell) {
+                        displayName = gameState.currentLanguage === 'ar' ? originalCell.displayName_ar : originalCell.displayName_en;
+                        if (originalCell.type === 'city') {
+                            iconHtml = `${getCountryFlagImage(originalCell.country)}`;
+                        } else if (originalCell.type === 'company') {
+                            iconHtml = `<span class="text-lg">${getCompanyEmoji(originalCell.content)}</span>`;
+                        }
                     }
+
                     listItem.innerHTML = `
                         <input type="checkbox" id="sell-prop-${prop.id}" value="${prop.id}" data-sell-price="${sellPrice}" class="form-checkbox h-4 w-4 text-purple-600">
                         <label for="sell-prop-${prop.id}" class="text-gray-300 text-sm flex items-center gap-1">
-                            ${iconHtml} <span>${originalCell.displayName || originalCell.content} ($${sellPrice})</span>
+                            ${iconHtml} <span>${displayName} ($${sellPrice})</span>
                         </label>
                     `;
                     propertiesToSellList.appendChild(listItem);
@@ -3299,9 +3478,9 @@
         /**
          * Handles the selling of selected properties.
          */
-        function sellSelectedProperties() {
+        async function sellSelectedProperties() {
             const propertiesToSellCheckboxes = document.querySelectorAll('#propertiesToSellList input[type="checkbox"]:checked');
-            const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+            const currentPlayer = gameState.players.find(p => p.userId === currentUserId);
             let totalRefund = 0;
             const soldPropertyIds = [];
 
@@ -3334,15 +3513,16 @@
             updateMyPropertiesList();
             document.getElementById('sellPropertyModal').classList.add('hidden');
             alert(getTranslation('playerSold', currentPlayer.name, soldPropertyIds.length, totalRefund, currentPlayer.money));
-            showMoneyEffect(currentPlayer.id, totalRefund, 'gain');
+            showMoneyEffect(currentPlayer.userId, totalRefund, 'gain');
             checkPlayerDebtStatus(); // Check debt status after selling properties
+            await updateGameInFirestore(); // Update Firestore
             console.log(`[Sell Property Debug] ${Date.now()}: Player ${currentPlayer.name} completed selling properties. Total refund: $${totalRefund}. New money: ${currentPlayer.money}.`);
         }
 
         /**
          * Adds a new AI player to the lobby.
          */
-        function addPlayerToLobby() {
+        async function addAIPlayerToLobby() {
             if (gameState.players.length >= MAX_PLAYERS) {
                 alert(getTranslation("maxPlayersReached"));
                 console.warn(`[Lobby Debug] ${Date.now()}: Cannot add player, max players reached.`);
@@ -3354,19 +3534,21 @@
             const newPlayerColor = playerColors[newPlayerId - 1]; // Assign color based on ID
 
             const newPlayer = {
-                id: newPlayerId,
+                userId: `ai_${Date.now()}_${newPlayerId}`, // Unique ID for AI
                 name: getTranslation('aiPlayer', newPlayerId),
                 money: gameState.STARTING_MONEY,
                 positionIndex: 0,
                 color: newPlayerColor,
-                country: 'Unknown' // Placeholder country for AI
+                country: 'Unknown', // Placeholder country for AI
+                isAI: true
             };
 
             gameState.players.push(newPlayer);
             if (gameState.leaderId === null) {
-                gameState.leaderId = newPlayer.id; // First player added is the leader
-                console.log(`[Lobby Debug] ${Date.now()}: New leader set: ${newPlayer.name} (ID: ${newPlayer.id}).`);
+                gameState.leaderId = currentUserId; // Human player is always the leader if they are the first
+                console.log(`[Lobby Debug] ${Date.now()}: New leader set: ${currentUsername} (ID: ${currentUserId}).`);
             }
+            await updateGameInFirestore(); // Update Firestore
             updateLobbyPlayerCards(); // Re-render lobby cards
             document.getElementById('lobbyPlayButton').disabled = false; // Enable play button
             console.log(`[Lobby Debug] ${Date.now()}: Added new AI Player ${newPlayerId}. Total players: ${gameState.players.length}.`);
@@ -3374,26 +3556,24 @@
 
         /**
          * Kicks a player from the lobby by the leader.
-         * @param {number} playerIdToKick - The ID of the player to be kicked.
+         * @param {string} playerUserIdToKick - The userId of the player to be kicked.
          */
-        function kickPlayerFromLobby(playerIdToKick) {
-            const leaderPlayer = gameState.players.find(p => p.id === gameState.leaderId);
-            if (!leaderPlayer || leaderPlayer.id !== gameState.leaderId) {
+        function kickPlayerFromLobby(playerUserIdToKick) {
+            const leaderPlayer = gameState.players.find(p => p.userId === gameState.leaderId);
+            if (!leaderPlayer || leaderPlayer.userId !== currentUserId) { // Check if current user is the leader
                 alert(getTranslation('onlyLeaderCanKick'));
-                console.warn(`[Lobby Kick Debug] ${Date.now()}: Kick attempt failed. Current player is not the leader.`);
+                console.warn(`[Lobby Kick Debug] ${Date.now()}: Kick attempt failed. Current user is not the leader.`);
                 return;
             }
 
-            const playerIndexToKick = gameState.players.findIndex(p => p.id === playerIdToKick);
-            if (playerIndexToKick === -1) {
-                console.warn(`[Lobby Kick Debug] ${Date.now()}: Attempted to kick non-existent player ID: ${playerIdToKick}.`);
+            const playerToKick = gameState.players.find(p => p.userId === playerUserIdToKick);
+            if (!playerToKick) {
+                console.warn(`[Lobby Kick Debug] ${Date.now()}: Attempted to kick non-existent player ID: ${playerUserIdToKick}.`);
                 return;
             }
-
-            const kickedPlayer = gameState.players[playerIndexToKick];
 
             // Confirmation dialog (using custom alert)
-            alert(getTranslation('confirmKick', kickedPlayer.name));
+            alert(getTranslation('confirmKick', playerToKick.name));
             const customAlert = document.getElementById('custom-alert');
             const okButton = customAlert.querySelector('button');
 
@@ -3401,21 +3581,18 @@
             const confirmButton = document.createElement('button');
             confirmButton.textContent = 'Confirm'; // Not translated, as it's a temporary dialog
             confirmButton.className = 'bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 mr-2';
-            confirmButton.onclick = () => {
-                gameState.players.splice(playerIndexToKick, 1);
-                if (kickedPlayer.id === gameState.leaderId && gameState.players.length > 0) {
-                    gameState.leaderId = gameState.players[0].id; // Assign new leader
+            confirmButton.onclick = async () => {
+                gameState.players = gameState.players.filter(p => p.userId !== playerUserIdToKick);
+                if (playerToKick.userId === gameState.leaderId && gameState.players.length > 0) {
+                    gameState.leaderId = gameState.players[0].userId; // Assign new leader
                 } else if (gameState.players.length === 0) {
                     gameState.leaderId = null;
                 }
-                updateLobbyPlayerCards();
+                await updateGameInFirestore(); // Update Firestore
                 document.getElementById('custom-alert').remove();
-                alert(getTranslation('playerKicked', kickedPlayer.name));
-                console.log(`[Lobby Kick Debug] ${Date.now()}: Player ${kickedPlayer.name} (ID: ${kickedPlayer.id}) kicked from lobby.`);
-                // Disable play button if no players left
-                if (gameState.players.length === 0) {
-                    document.getElementById('lobbyPlayButton').disabled = true;
-                }
+                alert(getTranslation('playerKicked', playerToKick.name));
+                console.log(`[Lobby Kick Debug] ${Date.now()}: Player ${playerToKick.name} (ID: ${playerToKick.userId}) kicked from lobby.`);
+                // Disable play button if no players left (should be handled by Firestore update)
             };
 
             const cancelButton = document.createElement('button');
@@ -3423,7 +3600,7 @@
             cancelButton.className = 'bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500';
             cancelButton.onclick = () => {
                 document.getElementById('custom-alert').remove();
-                console.log(`[Lobby Kick Debug] ${Date.now()}: Kick action cancelled for player ID: ${playerIdToKick}.`);
+                console.log(`[Lobby Kick Debug] ${Date.now()}: Kick action cancelled for player ID: ${playerUserIdToKick}.`);
             };
 
             okButton.replaceWith(confirmButton, cancelButton);
@@ -3443,43 +3620,57 @@
                 playerCard.className = 'player-card';
 
                 let crownHtml = '';
-                if (player.id === gameState.leaderId) {
+                if (player.userId === gameState.leaderId) {
                     crownHtml = `<i class="fas fa-crown leader-crown"></i>`;
                 }
 
                 let kickButtonHtml = '';
-                // Only show kick button if current player is leader and it's not their own card
-                if (gameState.leaderId !== null && gameState.players[0] && gameState.players[0].id === gameState.leaderId && player.id !== gameState.leaderId) {
-                    kickButtonHtml = `<button class="kick-button" onclick="kickPlayerFromLobby(${player.id})">${getTranslation('kick')}</button>`;
+                // Only show kick button if current user is leader and it's not their own card and not an AI
+                if (currentUserId === gameState.leaderId && player.userId !== currentUserId && !player.isAI) {
+                    kickButtonHtml = `<button class="kick-button" onclick="kickPlayerFromLobby('${player.userId}')">${getTranslation('kick')}</button>`;
+                } else if (currentUserId === gameState.leaderId && player.isAI) {
+                     kickButtonHtml = `<button class="kick-button" onclick="kickPlayerFromLobby('${player.userId}')">${getTranslation('kick')}</button>`;
                 }
 
                 playerCard.innerHTML = `
                     ${crownHtml}
                     <div class="player-icon" style="color: ${player.color};"><i class="fas fa-user-circle"></i></div>
                     <h4 class="text-lg font-bold text-white">${player.name}</h4>
-                    <p class="text-gray-400">${getTranslation('money')}: <span class="text-green-400 font-bold">$${player.money}</span></p>
+                    <p class="text-gray-400">${getTranslation('playerMoney', player.money)}</p>
                     <span class="status-badge">${getTranslation('ready')}</span>
                     ${kickButtonHtml}
                 `;
                 lobbyPlayerCardsContainer.appendChild(playerCard);
             });
 
-            // Add "Add Player" cards for remaining slots
-            for (let i = gameState.players.length; i < MAX_PLAYERS; i++) {
-                const addPlayerCard = document.createElement('div');
-                addPlayerCard.className = 'player-card flex flex-col items-center justify-center cursor-pointer hover:bg-gray-700 transition-colors duration-200';
-                addPlayerCard.style.border = '2px dashed #555577'; // Dashed border for empty slot
-                addPlayerCard.innerHTML = `
-                    <div class="text-6xl text-gray-400 mb-2"><i class="fas fa-plus-circle"></i></div>
-                    <h4 class="text-lg font-bold text-gray-400">${getTranslation('addPlayer')}</h4>
-                `;
-                addPlayerCard.addEventListener('click', addPlayerToLobby); // Attach event listener
-                lobbyPlayerCardsContainer.appendChild(addPlayerCard);
+            // Add "Add Player" cards for remaining slots, only if current user is leader
+            if (currentUserId === gameState.leaderId) {
+                for (let i = gameState.players.length; i < MAX_PLAYERS; i++) {
+                    const addPlayerCard = document.createElement('div');
+                    addPlayerCard.className = 'player-card flex flex-col items-center justify-center cursor-pointer hover:bg-gray-700 transition-colors duration-200';
+                    addPlayerCard.style.border = '2px dashed #555577'; // Dashed border for empty slot
+                    addPlayerCard.innerHTML = `
+                        <div class="text-6xl text-gray-400 mb-2"><i class="fas fa-plus-circle"></i></div>
+                        <h4 class="text-lg font-bold text-gray-400">${getTranslation('addPlayer')}</h4>
+                    `;
+                    addPlayerCard.addEventListener('click', addAIPlayerToLobby); // Attach event listener
+                    lobbyPlayerCardsContainer.appendChild(addPlayerCard);
+                }
             }
+
 
             // Update the lobby player count display
             document.getElementById('lobbyPlayerCount').textContent = `${gameState.players.length}/${MAX_PLAYERS}`;
+            document.getElementById('onlinePlayersTitle').innerHTML = `${getTranslation('online')} <span class="text-green-400">(${gameState.players.length})</span>`;
             console.log(`[Lobby Debug] ${Date.now()}: Lobby player cards updated. Current count: ${gameState.players.length}/${MAX_PLAYERS}.`);
+
+            // Enable/disable play button based on player count and leader status
+            const lobbyPlayButton = document.getElementById('lobbyPlayButton');
+            if (gameState.players.length > 0 && currentUserId === gameState.leaderId) {
+                lobbyPlayButton.disabled = false;
+            } else {
+                lobbyPlayButton.disabled = true;
+            }
         }
 
         // --- Settings Modal Functions ---
@@ -3491,13 +3682,25 @@
             console.log(`[Settings Debug] ${Date.now()}: Settings modal opened. Current language: ${gameState.currentLanguage}.`);
         }
 
-        function applySettings() {
+        async function applySettings() {
             const languageSelect = document.getElementById('languageSelect');
             const selectedLanguage = languageSelect.value;
             if (gameState.currentLanguage !== selectedLanguage) {
                 gameState.currentLanguage = selectedLanguage;
                 updateAllTextContent(); // Re-render all text content with new language
+                populateBoard(); // Re-populate board to update city names
                 console.log(`[Settings Debug] ${Date.now()}: Language set to: ${selectedLanguage}.`);
+
+                // Update user's language preference in Firestore
+                if (currentUserId && db) {
+                    try {
+                        const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
+                        await setDoc(userDocRef, { language: selectedLanguage }, { merge: true });
+                        console.log(`[Firestore] User language preference updated to ${selectedLanguage}.`);
+                    } catch (error) {
+                        console.error("Error updating user language preference:", error);
+                    }
+                }
             }
             closeSettingsModal();
         }
@@ -3508,9 +3711,419 @@
             console.log(`[Settings Debug] ${Date.now()}: Settings modal closed.`);
         }
 
+        // --- Firebase Integration ---
+        async function setupFirebase() {
+            console.log("[Firebase] Initializing Firebase...");
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Sign in with custom token if available, otherwise anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                    console.log("[Firebase] Signed in with custom token.");
+                } else {
+                    await signInAnonymously(auth);
+                    console.log("[Firebase] Signed in anonymously.");
+                }
+
+                // Listen for auth state changes
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        document.getElementById('currentUserIdDisplay').textContent = currentUserId;
+                        console.log(`[Firebase] User authenticated: ${currentUserId}`);
+                        await checkAndSetUsername();
+                    } else {
+                        currentUserId = null;
+                        currentUsername = null;
+                        document.getElementById('currentUserIdDisplay').textContent = "Not Authenticated";
+                        console.log("[Firebase] User logged out or not authenticated.");
+                        // Handle UI changes for logged out state if necessary
+                    }
+                });
+            } catch (error) {
+                console.error("Error setting up Firebase:", error);
+                document.getElementById('currentUserIdDisplay').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // --- Username Management ---
+        async function checkAndSetUsername() {
+            if (!currentUserId || !db) {
+                console.warn("[Username] Firebase not ready or user not authenticated.");
+                return;
+            }
+
+            const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
+            try {
+                const userDocSnap = await getDoc(userDocRef);
+                if (userDocSnap.exists() && userDocSnap.data().username) {
+                    currentUsername = userDocSnap.data().username;
+                    gameState.currentLanguage = userDocSnap.data().language || 'en'; // Load language preference
+                    console.log(`[Username] User profile found. Username: ${currentUsername}, Language: ${gameState.currentLanguage}.`);
+                    document.body.dir = (gameState.currentLanguage === 'ar') ? 'rtl' : 'ltr'; // Set initial direction
+                    updateAllTextContent(); // Update UI with loaded language
+                    document.getElementById('lobbyPage').classList.remove('hidden'); // Show lobby if username exists
+                } else {
+                    console.log("[Username] User profile not found or username not set. Showing username modal.");
+                    document.getElementById('usernameModal').classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error("Error fetching user profile:", error);
+                document.getElementById('usernameModal').classList.remove('hidden'); // Show modal on error
+            }
+        }
+
+        async function saveUsername() {
+            const usernameInput = document.getElementById('usernameInput');
+            const usernameError = document.getElementById('usernameError');
+            const username = usernameInput.value.trim();
+
+            usernameError.textContent = ''; // Clear previous errors
+
+            // Validate username format
+            const usernameRegex = /^[a-z0-9_]{3,15}$/;
+            if (!usernameRegex.test(username)) {
+                usernameError.textContent = getTranslation('usernameInvalid');
+                return;
+            }
+
+            // Check if username is unique
+            try {
+                const usersCollectionRef = collection(db, `artifacts/${appId}/users`);
+                const q = query(usersCollectionRef, where("profile.data.username", "==", username));
+                const querySnapshot = await getDocs(q);
+
+                if (!querySnapshot.empty) {
+                    usernameError.textContent = getTranslation('usernameTaken');
+                    return;
+                }
+
+                // Save username to Firestore
+                const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/profile/data`);
+                await setDoc(userDocRef, { username: username, language: gameState.currentLanguage }, { merge: true });
+                currentUsername = username;
+                alert(getTranslation('usernameSaved', username));
+                document.getElementById('usernameModal').classList.add('hidden');
+                document.getElementById('lobbyPage').classList.remove('hidden'); // Show lobby after saving username
+                updateAllTextContent(); // Update UI with new username
+                console.log(`[Username] Username "${username}" saved for user ${currentUserId}.`);
+
+                // If no game is active, create a default lobby for the user
+                if (!gameState.partyCode) {
+                    await createLobby();
+                } else {
+                    // If a party code is already set (e.g., from URL), try to join
+                    await joinLobby(gameState.partyCode);
+                }
+
+            } catch (error) {
+                console.error("Error saving username:", error);
+                usernameError.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // --- Lobby Management with Firestore ---
+        async function createLobby() {
+            if (!db || !currentUserId || !currentUsername) {
+                console.error("[Lobby] Firebase not ready or user not authenticated for lobby creation.");
+                return;
+            }
+
+            const partyCodeInput = document.getElementById('partyCodeInput');
+            const partyCode = partyCodeInput.value.trim().toLowerCase(); // Use user-entered code or generate
+
+            let finalPartyCode = partyCode;
+            if (!finalPartyCode) {
+                // Generate a random 6-character alphanumeric code if not provided
+                finalPartyCode = Math.random().toString(36).substring(2, 8);
+            }
+
+            const gameRef = doc(db, `artifacts/${appId}/public/data/games/${finalPartyCode}`);
+            try {
+                const gameSnap = await getDoc(gameRef);
+                if (gameSnap.exists()) {
+                    if (gameSnap.data().gameStatus === 'in-game') {
+                        alert(getTranslation('gameAlreadyStarted'));
+                        return;
+                    }
+                    // Lobby exists, try to join it
+                    console.log(`[Lobby] Lobby ${finalPartyCode} already exists. Attempting to join.`);
+                    await joinLobby(finalPartyCode);
+                    return;
+                }
+
+                // Create new lobby
+                const playerColors = ['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF4500'];
+                const playerColor = playerColors[0]; // First player gets first color
+
+                const initialPlayer = {
+                    userId: currentUserId,
+                    name: currentUsername,
+                    money: gameState.STARTING_MONEY,
+                    positionIndex: 0,
+                    color: playerColor,
+                    isAI: false
+                };
+
+                const initialGameState = {
+                    players: [initialPlayer],
+                    currentPlayerIndex: 0,
+                    boardProperties: {},
+                    pendingTradeOffers: [],
+                    leaderId: currentUserId,
+                    gameStatus: 'lobby',
+                    partyCode: finalPartyCode,
+                    createdAt: Date.now()
+                };
+
+                await setDoc(gameRef, initialGameState);
+                gameState.partyCode = finalPartyCode;
+                gameDocRef = gameRef; // Set global gameDocRef
+                alert(getTranslation('lobbyCreated', finalPartyCode));
+                console.log(`[Lobby] Lobby ${finalPartyCode} created by ${currentUsername}.`);
+                partyCodeInput.value = finalPartyCode; // Display the code
+
+                setupGameListener(finalPartyCode); // Start listening for updates
+                document.getElementById('gameShareLink').value = `https://game-1-b46e1.web.app/?partyCode=${finalPartyCode}`; // Updated share link
+
+            } catch (error) {
+                console.error("Error creating lobby:", error);
+                alert(`Error creating/joining lobby: ${error.message}`);
+            }
+        }
+
+        async function joinLobby(code) {
+            if (!db || !currentUserId || !currentUsername) {
+                console.error("[Lobby] Firebase not ready or user not authenticated for lobby join.");
+                return;
+            }
+
+            const partyCode = code.trim().toLowerCase();
+            const gameRef = doc(db, `artifacts/${appId}/public/data/games/${partyCode}`);
+
+            try {
+                const gameSnap = await getDoc(gameRef);
+                if (!gameSnap.exists()) {
+                    alert(getTranslation('lobbyNotFound'));
+                    console.warn(`[Lobby] Lobby ${partyCode} not found.`);
+                    return;
+                }
+
+                const currentLobbyState = gameSnap.data();
+                if (currentLobbyState.gameStatus === 'in-game') {
+                    alert(getTranslation('gameAlreadyStarted'));
+                    return;
+                }
+
+                if (currentLobbyState.players.length >= MAX_PLAYERS) {
+                    alert(getTranslation('maxPlayersReached'));
+                    console.warn(`[Lobby] Lobby ${partyCode} is full.`);
+                    return;
+                }
+
+                // Check if player is already in this lobby
+                const isAlreadyInLobby = currentLobbyState.players.some(p => p.userId === currentUserId);
+                if (isAlreadyInLobby) {
+                    console.log(`[Lobby] User ${currentUsername} already in lobby ${partyCode}. Rejoining.`);
+                    gameState.partyCode = partyCode;
+                    gameDocRef = gameRef;
+                    setupGameListener(partyCode);
+                    document.getElementById('partyCodeInput').value = partyCode;
+                    document.getElementById('gameShareLink').value = `https://game-1-b46e1.web.app/?partyCode=${partyCode}`; // Updated share link
+                    return;
+                }
+
+                const playerColors = ['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF4500'];
+                const existingPlayerIds = currentLobbyState.players.map(p => p.id); // Assuming p.id is 1,2,3...
+                let newPlayerId = 1;
+                while (existingPlayerIds.includes(newPlayerId)) {
+                    newPlayerId++;
+                }
+                const playerColor = playerColors[newPlayerId - 1]; // Assign color based on ID
+
+                const newPlayer = {
+                    userId: currentUserId,
+                    name: currentUsername,
+                    money: gameState.STARTING_MONEY,
+                    positionIndex: 0,
+                    color: playerColor,
+                    isAI: false,
+                    id: newPlayerId // Assign a simple ID for color mapping
+                };
+
+                currentLobbyState.players.push(newPlayer);
+                await updateDoc(gameRef, { players: currentLobbyState.players });
+
+                gameState.partyCode = partyCode;
+                gameDocRef = gameRef; // Set global gameDocRef
+                alert(getTranslation('lobbyJoined', partyCode));
+                console.log(`[Lobby] User ${currentUsername} joined lobby ${partyCode}.`);
+                document.getElementById('partyCodeInput').value = partyCode;
+                document.getElementById('gameShareLink').value = `https://game-1-b46e1.web.app/?partyCode=${partyCode}`; // Updated share link
+
+                setupGameListener(partyCode); // Start listening for updates
+
+            } catch (error) {
+                console.error("Error joining lobby:", error);
+                alert(`Error joining lobby: ${error.message}`);
+            }
+        }
+
+        async function leaveLobby() {
+            if (!gameDocRef || !currentUserId) return;
+
+            try {
+                const gameSnap = await getDoc(gameDocRef);
+                if (gameSnap.exists()) {
+                    const currentLobbyState = gameSnap.data();
+                    const updatedPlayers = currentLobbyState.players.filter(p => p.userId !== currentUserId);
+
+                    // If the leaving player was the leader, reassign leader
+                    let newLeaderId = currentLobbyState.leaderId;
+                    if (currentUserId === currentLobbyState.leaderId && updatedPlayers.length > 0) {
+                        newLeaderId = updatedPlayers[0].userId;
+                    } else if (updatedPlayers.length === 0) {
+                        newLeaderId = null;
+                    }
+
+                    await updateDoc(gameDocRef, {
+                        players: updatedPlayers,
+                        leaderId: newLeaderId
+                    });
+                    console.log(`[Lobby] User ${currentUsername} left lobby ${gameState.partyCode}.`);
+                }
+            } catch (error) {
+                console.error("Error leaving lobby:", error);
+            } finally {
+                if (gameUnsubscribe) {
+                    gameUnsubscribe();
+                    gameUnsubscribe = null;
+                }
+                gameState.partyCode = null;
+                gameDocRef = null;
+                // Reset UI to initial lobby state
+                document.getElementById('lobbyPage').classList.remove('hidden');
+                document.getElementById('gamePage').classList.add('hidden');
+                document.getElementById('partyCodeInput').value = '';
+                gameState.players = []; // Clear local players array
+                gameState.leaderId = null; // Clear local leader
+                updateLobbyPlayerCards(); // Re-render empty lobby cards
+            }
+        }
+
+        function setupGameListener(partyCode) {
+            if (gameUnsubscribe) {
+                gameUnsubscribe(); // Unsubscribe from previous game if any
+            }
+            gameDocRef = doc(db, `artifacts/${appId}/public/data/games/${partyCode}`);
+            gameUnsubscribe = onSnapshot(gameDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const latestGameState = docSnap.data();
+                    console.log("[Firestore] Game state updated:", latestGameState);
+
+                    // Deep merge or replace gameState with latest from Firestore
+                    Object.assign(gameState, latestGameState);
+
+                    // Ensure player.id is correctly assigned for color mapping
+                    // This is a workaround if Firestore doesn't preserve `id` correctly or if players join out of order
+                    gameState.players.forEach((player, index) => {
+                        player.id = index + 1; // Assign sequential ID for color
+                    });
+
+                    // Update UI based on current game status
+                    if (gameState.gameStatus === 'lobby') {
+                        document.getElementById('lobbyPage').classList.remove('hidden');
+                        document.getElementById('gamePage').classList.add('hidden');
+                        updateLobbyPlayerCards();
+                        // Update current player's money display in lobby header
+                        const currentPlayerInLobby = gameState.players.find(p => p.userId === currentUserId);
+                        if (currentPlayerInLobby) {
+                            document.getElementById('playerMoneyDisplay').textContent = currentPlayerInLobby.money;
+                        }
+                    } else if (gameState.gameStatus === 'in-game') {
+                        document.getElementById('lobbyPage').classList.add('hidden');
+                        document.getElementById('gamePage').classList.remove('hidden');
+                        populateBoard(); // Re-render board with latest property owners/levels
+                        addPlayerTokens(); // Re-add tokens to ensure correct positions
+                        updatePlayersList();
+                        updateMyPropertiesList();
+                        updatePendingTradesList();
+                        checkPlayerDebtStatus();
+                        // If it's my turn and timer isn't running, start it
+                        const currentPlayerTurn = gameState.players[gameState.currentPlayerIndex];
+                        if (currentPlayerTurn && currentPlayerTurn.userId === currentUserId && turnTimer === null) {
+                             startTurnTimer();
+                        }
+                    } else if (gameState.gameStatus === 'ended') {
+                        alert(getTranslation('gameEnded'));
+                        document.getElementById('gamePage').classList.add('hidden');
+                        document.getElementById('lobbyPage').classList.remove('hidden');
+                        // Optionally clean up game document from Firestore here or let it persist
+                        // deleteDoc(gameDocRef); // Uncomment if games should be deleted after ending
+                        if (gameUnsubscribe) {
+                            gameUnsubscribe();
+                            gameUnsubscribe = null;
+                        }
+                        gameState.partyCode = null;
+                        gameDocRef = null;
+                        gameState.players = [];
+                        gameState.leaderId = null;
+                        updateLobbyPlayerCards();
+                    }
+
+                    // Check for incoming trade offers for the current user
+                    const incomingOffer = gameState.pendingTradeOffers.find(
+                        offer => offer.recipientId === currentUserId && offer.status === 'pending'
+                    );
+                    if (incomingOffer && !document.getElementById('incomingTradeOfferModal').classList.contains('hidden')) {
+                        // If modal is already open for another offer, or this offer, update it
+                        // This prevents re-opening if it's already visible
+                        if (gameState.currentActiveTradeOffer?.offerId !== incomingOffer.offerId) {
+                            displayIncomingTradeOffer(incomingOffer);
+                        }
+                    } else if (!incomingOffer && gameState.currentActiveTradeOffer?.recipientId === currentUserId) {
+                        // If there was an active incoming offer for me, but it's no longer pending, close modal
+                        document.getElementById('incomingTradeOfferModal').classList.add('hidden');
+                        gameState.currentActiveTradeOffer = null;
+                    }
+
+
+                } else {
+                    console.log("[Firestore] Game document does not exist. Lobby might have been deleted.");
+                    alert(getTranslation('lobbyNotFound'));
+                    leaveLobby(); // Go back to lobby creation if game doc disappears
+                }
+            }, (error) => {
+                console.error("Error listening to game state:", error);
+                alert(`Error syncing game: ${error.message}`);
+                leaveLobby(); // Attempt to leave if there's a listener error
+            });
+            console.log(`[Firestore] Listening to game state for party code: ${partyCode}`);
+        }
+
+        async function updateGameInFirestore() {
+            if (!gameDocRef) {
+                console.error("[Firestore] No active game document reference to update.");
+                return;
+            }
+            try {
+                // Remove functions before sending to Firestore
+                const stateToSave = { ...gameState };
+                // Firestore cannot store functions, so ensure they are not in the object being saved
+                // (e.g., if you had functions directly in player objects, remove them)
+                await setDoc(gameDocRef, stateToSave);
+                console.log("[Firestore] Game state updated in Firestore.");
+            } catch (error) {
+                console.error("Error updating game state in Firestore:", error);
+                alert(`Error saving game state: ${error.message}`);
+            }
+        }
 
         // DOM Content Loaded event listener
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             console.log("DOMContentLoaded event fired."); // Debug log
             try {
                 const lobbyPage = document.getElementById('lobbyPage');
@@ -3521,42 +4134,82 @@
                 const settingsBtn = document.getElementById('settingsBtn');
                 const applySettingsBtn = document.getElementById('applySettingsBtn');
                 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+                const saveUsernameBtn = document.getElementById('saveUsernameBtn');
+                const usernameInput = document.getElementById('usernameInput');
+                const createJoinPartyBtn = document.getElementById('createJoinPartyBtn');
+                const partyCodeInput = document.getElementById('partyCodeInput');
+                const backButton = document.querySelector('.lobby-header .left-section button'); // Back button in lobby
 
                 // Initialize players as empty
                 gameState.players = [];
                 gameState.currentPlayerIndex = 0; // Start with the first player (will be 0 if no players)
                 gameState.leaderId = null; // No leader initially
 
+                // Hide both pages initially, show username modal or lobby after Firebase setup
+                lobbyPage.classList.add('hidden');
+                gamePage.classList.add('hidden');
+
+                await setupFirebase(); // Initialize Firebase and handle auth/username
+
+                // Handle partyCode from URL if present (for joining directly)
+                const urlParams = new URLSearchParams(window.location.search);
+                const initialPartyCode = urlParams.get('partyCode');
+                if (initialPartyCode) {
+                    partyCodeInput.value = initialPartyCode;
+                    gameState.partyCode = initialPartyCode; // Store it temporarily
+                }
+
                 // The lobby page is now the initial view
-                lobbyPage.classList.remove('hidden');
                 updateLobbyPlayerCards(); // Populate lobby player cards on load (will show "Add Player" initially)
                 updateAllTextContent(); // Apply initial language
 
                 // Initially disable the play button
                 if (lobbyPlayButton) {
                     lobbyPlayButton.disabled = true;
-                    lobbyPlayButton.addEventListener('click', () => {
+                    lobbyPlayButton.addEventListener('click', async () => {
                         if (gameState.players.length === 0) {
                             alert(getTranslation("addAtLeastOnePlayer"));
                             console.warn(`[Lobby Debug] ${Date.now()}: Play button clicked, but no players added.`);
                             return;
                         }
+                        if (currentUserId !== gameState.leaderId) {
+                            alert(getTranslation('notLeader'));
+                            return;
+                        }
+                        if (gameState.gameStatus === 'in-game') {
+                            alert(getTranslation('gameAlreadyStarted'));
+                            return;
+                        }
+
+                        // Update game status in Firestore to 'in-game'
+                        gameState.gameStatus = 'in-game';
+                        await updateGameInFirestore();
+
                         console.log(`[Lobby Debug] ${Date.now()}: Lobby Play button clicked. Transitioning to game page with ${gameState.players.length} players.`);
-                        lobbyPage.classList.add('hidden'); // Hide lobby page
-                        gamePage.classList.remove('hidden'); // Show game page
-                        populateBoard(); // Populate the board when game page is shown
-                        addPlayerTokens(); // Add player tokens to the board
-                        updatePlayersList(); // Populate player sidebar
-                        updateMyPropertiesList(); // Initialize properties list
-                        updatePendingTradesList(); // Initialize pending trades list
-                        checkPlayerDebtStatus(); // Check initial debt status for first player
-                        startTurnTimer(); // Start the timer for the first player's turn
-                        console.log(`[Game Start] ${Date.now()}: Game started. First player: ${gameState.players[gameState.currentPlayerIndex]?.name}.`);
+                        // UI transition and game start logic will be handled by the Firestore listener
                     });
                     console.log("Lobby Play button event listener attached."); // Debug log
                 } else {
                     console.error("Lobby Play button element not found!"); // Debug log
                 }
+
+                // Create/Join Party Button
+                if (createJoinPartyBtn) {
+                    createJoinPartyBtn.addEventListener('click', async () => {
+                        const code = partyCodeInput.value.trim();
+                        if (code) {
+                            await joinLobby(code);
+                        } else {
+                            await createLobby();
+                        }
+                    });
+                }
+
+                // Back button in lobby header (to leave lobby)
+                if (backButton) {
+                    backButton.addEventListener('click', leaveLobby);
+                }
+
 
                 // Toggle switch functionality for "CLOSED PARTY" on the lobby page
                 const toggleCheckbox = document.getElementById('closedPartyToggle');
@@ -3606,6 +4259,16 @@
                 }
                 if (closeSettingsBtn) {
                     closeSettingsBtn.addEventListener('click', closeSettingsModal);
+                }
+
+                // Username modal listeners
+                if (saveUsernameBtn) {
+                    saveUsernameBtn.addEventListener('click', saveUsername);
+                    usernameInput.addEventListener('keypress', (event) => {
+                        if (event.key === 'Enter') {
+                            saveUsername();
+                        }
+                    });
                 }
 
                 // Attach event listener for sending trade offer
