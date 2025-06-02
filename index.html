@@ -157,12 +157,24 @@
         let currentUserId = null;
         let currentUsername = null;
 
-        // Global app ID from environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'game-1-b46e1';
-        // firebaseConfig is now initialized as an empty object and populated within setupFirebase
-        const firebaseConfig = {}; // Initialize as empty object
+        // معرف التطبيق (appId) الخاص بك.
+        const appId = 'game-1-b46e1';
 
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // إعدادات Firebase الخاصة بمشروعك.
+        // **تم استبدال القيم النائبة بالقيم الفعلية التي قدمتها.**
+        const firebaseConfig = {
+            apiKey: "AIzaSyAi0AkAh7J7CAXak-8TaH0W9e6yWV0lkJ8",
+            authDomain: "game-1-b46e1.firebaseapp.com",
+            projectId: "game-1-b46e1",
+            storageBucket: "game-1-b46e1.firebasestorage.app",
+            messagingSenderId: "639039311478",
+            appId: "1:639039311478:web:2206bed0773a5dc72dd957",
+            measurementId: "G-RXG7VCP7PD"
+        };
+
+        // هذا المتغير يستخدم فقط في بيئة Canvas ولا يكون متاحًا عند التشغيل المباشر.
+        // لذلك، لن نستخدمه هنا.
+        // const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         // Translation dictionary (simplified for this context)
         const translations = {
@@ -241,32 +253,17 @@
         // --- Firebase Integration ---
         async function setupFirebase() {
             console.log("[Firebase] Initializing Firebase...");
-            console.log("[Firebase] Raw __firebase_config:", typeof __firebase_config, __firebase_config); // Log raw value
 
             try {
-                // Ensure firebaseConfig is a valid object, even if empty, to prevent JSON.parse errors
-                const configString = typeof __firebase_config === 'string' && __firebase_config.trim() !== '' ? __firebase_config : '{}';
-                let parsedConfig;
-                try {
-                    parsedConfig = JSON.parse(configString);
-                } catch (e) {
-                    console.error("[Firebase] Error parsing __firebase_config:", e);
-                    alert("خطأ في تهيئة Firebase: فشل في تحليل إعدادات المشروع. يرجى التحقق من تنسيق __firebase_config.");
+                // نتحقق مما إذا كانت إعدادات FirebaseConfig قد تم استبدالها بالقيم الفعلية
+                if (firebaseConfig.apiKey === "YOUR_API_KEY" || Object.keys(firebaseConfig).length === 0) {
+                    console.error("[Firebase] firebaseConfig is not properly set. Please replace placeholder values with your actual Firebase project configuration.");
+                    alert("خطأ في تهيئة Firebase: إعدادات مشروع Firebase غير صحيحة أو مفقودة. يرجى استبدال القيم النائبة بالقيم الفعلية لمشروعك في الكود.");
                     return;
                 }
-
-                if (!parsedConfig || Object.keys(parsedConfig).length === 0) {
-                    console.error("[Firebase] firebaseConfig is missing or empty. This usually means the Firebase project is not correctly linked to this Canvas environment.");
-                    alert("خطأ في تهيئة Firebase: إعدادات مشروع Firebase مفقودة أو فارغة. يرجى التأكد من ربط مشروع Firebase الخاص بك بشكل صحيح ببيئة Canvas.");
-                    return;
-                }
-
-                // Assign to global firebaseConfig only if valid
-                Object.assign(firebaseConfig, parsedConfig); // Update the global firebaseConfig object
 
                 console.log("[Firebase] Final firebaseConfig used:", firebaseConfig);
                 console.log("[Firebase] Using appId:", appId);
-                console.log("[Firebase] initialAuthToken:", initialAuthToken);
 
                 app = initializeApp(firebaseConfig);
                 console.log("[Firebase] Firebase app initialized. App object:", app);
@@ -297,13 +294,6 @@
                         document.getElementById('loginSignupModal').classList.remove('hidden');
                     }
                 });
-
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                    console.log("[Firebase] Signed in with custom token.");
-                } else {
-                    console.log("[Firebase] No custom token. Awaiting user authentication via login/signup.");
-                }
 
             } catch (error) {
                 console.error("Error setting up Firebase:", error);
