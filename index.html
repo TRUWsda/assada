@@ -3727,6 +3727,7 @@
                     alert("Firebase configuration is missing. The app cannot connect to the database.");
                     return; // Stop initialization
                 }
+                console.log("[Firebase] firebaseConfig:", firebaseConfig); // Log firebaseConfig for debugging
 
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
