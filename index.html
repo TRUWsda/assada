@@ -1191,15 +1191,15 @@
             deleteDoc
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Configuration (updated with user's provided config)
-        const firebaseConfig = {
-            apiKey: "AIzaSyDBw9rCwNV-3vfQ9GrgD03kJ4C42yT3aPs",
-            authDomain: "bank-e7c89.firebaseapp.com",
-            projectId: "bank-e7c89",
-            storageBucket: "bank-e7c89.firebasestorage.app",
-            messagingSenderId: "634088407451",
-            appId: "1:634088407451:web:7c98a8aff0623c9339613e",
-            measurementId: "G-EJ8WZJ8L6F"
+        // Firebase Configuration (updated to use __firebase_config from Canvas environment)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "YOUR_API_KEY", // Placeholder if not in Canvas
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID",
+            measurementId: "YOUR_MEASUREMENT_ID"
         };
 
         // Initialize Firebase
@@ -1207,9 +1207,9 @@
         const db = getFirestore(app);
 
         // Global App ID for Firestore paths (provided by Canvas environment)
-        const __app_id = "truwpi-game"; // Using a fixed app ID for demo purposes
-        const usersCollectionRef = collection(db, `artifacts/${__app_id}/public/data/users`);
-        const gamesCollectionRef = collection(db, `artifacts/${__app_id}/public/data/games`);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/users`);
+        const gamesCollectionRef = collection(db, `artifacts/${appId}/public/data/games`);
 
         // Game State Object
         const gameState = {
@@ -1575,7 +1575,7 @@
             document.getElementById('copyButtonText').textContent = getTranslation('copy');
             document.getElementById('roomSettingsButtonText').textContent = getTranslation('roomSettings');
             document.getElementById('userIdTitle').textContent = getTranslation('userId');
-            document.getElementById('currentUserIdDisplay').textContent = gameState.currentUser ? gameState.currentUser.username : getTranslation('notLoggedIn');
+            document.getElementById('currentUserIdDisplay').textContent = gameState.currentUser ? gameState.currentUser.name : getTranslation('notLoggedIn'); // Display username
             document.getElementById('chatUnavailableText').textContent = getTranslation('chatUnavailable'); // Assuming chatUnavailable key
             document.getElementById('chatInput').placeholder = getTranslation('saySomething');
             document.getElementById('sendButtonText').textContent = getTranslation('send');
@@ -2089,14 +2089,17 @@
         // Function to create and add player tokens to the board
         function addPlayerTokens() {
             gameState.players.forEach(player => {
-                const playerToken = document.createElement('div');
-                playerToken.id = `player-token-${player.id}`;
-                playerToken.classList.add('player-token', `player-color-${player.id}`);
-                playerToken.textContent = player.id; // Display player ID or initial
+                let playerToken = document.getElementById(`player-token-${player.id}`);
+                if (!playerToken) {
+                    playerToken = document.createElement('div');
+                    playerToken.id = `player-token-${player.id}`;
+                    playerToken.classList.add('player-token', `player-color-${player.id}`);
+                    playerToken.textContent = player.id; // Display player ID or initial
+                }
                 // Set initial position to "Start" cell
-                const startCell = document.querySelector(`.${boardPath[player.positionIndex]}`);
-                if (startCell) {
-                    startCell.appendChild(playerToken);
+                const targetCell = document.querySelector(`.${boardPath[player.positionIndex]}`);
+                if (targetCell) {
+                    targetCell.appendChild(playerToken);
                 }
             });
             updatePlayersList(); // Initial highlight for current player
@@ -2121,7 +2124,7 @@
                     </span>
                     <span class="flex items-center gap-2">
                         <span class="text-green-400">$<span id="player-money-${player.id}">${player.money}</span></span>
-                        <button class="text-blue-400 hover:text-blue-200 text-sm" onclick="openTradeCreationModal(gameState.players[gameState.currentPlayerIndex].id)">
+                        <button class="text-blue-400 hover:text-blue-200 text-sm" onclick="openTradeCreationModal(gameState.players[gameState.currentPlayerIndex].userId)">
                             <i class="fas fa-handshake"></i>
                         </button>
                     </span>
@@ -2146,7 +2149,7 @@
         function updateMyPropertiesList() {
             const myPropertiesListElem = document.getElementById('myPropertiesList');
             const myPropertiesCountElem = document.getElementById('myPropertiesCount');
-            const currentPlayer = gameState.players.find(p => p.id === gameState.currentUser?.id); // Get current logged-in player
+            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId); // Get current logged-in player using userId
 
             if (!currentPlayer) {
                 myPropertiesListElem.innerHTML = `<li class="text-sm text-gray-400">${getTranslation('noProperties')}</li>`;
@@ -2333,16 +2336,21 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    players: gameState.players,
-                    boardProperties: gameState.boardProperties,
-                    currentPlayerIndex: gameState.currentPlayerIndex // Update index after splice
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        players: gameState.players,
+                        boardProperties: gameState.boardProperties,
+                        currentPlayerIndex: gameState.currentPlayerIndex // Update index after splice
+                    });
+                    console.log(`[Player Kick Debug] Firestore update successful after kicking ${kickedPlayer.name}.`);
+                } catch (error) {
+                    console.error(`[Player Kick Error] Firestore update failed after kicking ${kickedPlayer.name}:`, error);
+                }
             }
 
             // If the kicked player was the leader, reassign leaderId
-            if (kickedPlayer.id === gameState.leaderId && gameState.players.length > 0) {
-                gameState.leaderId = gameState.players[0].id;
+            if (kickedPlayer.userId === gameState.leaderId && gameState.players.length > 0) { // Use userId here
+                gameState.leaderId = gameState.players[0].userId; // Assign new leader using userId
                 console.log(`[Player Kick Debug] ${Date.now()}: Leader ${kickedPlayer.name} was kicked. New leader: ${gameState.players[0].name}.`);
             } else if (gameState.players.length === 0) {
                 gameState.leaderId = null; // No leader if no players
@@ -2356,7 +2364,12 @@
                 document.getElementById('lobbyPage').classList.remove('hidden');
                 // Delete game document from Firestore
                 if (gameState.currentGameId) {
-                    await deleteDoc(doc(gamesCollectionRef, gameState.currentGameId));
+                    try {
+                        await deleteDoc(doc(gamesCollectionRef, gameState.currentGameId));
+                        console.log(`[Game Over Debug] Game document ${gameState.currentGameId} deleted.`);
+                    } catch (error) {
+                        console.error(`[Game Over Error] Failed to delete game document ${gameState.currentGameId}:`, error);
+                    }
                     gameState.currentGameId = null;
                     if (gameState.currentGameListener) {
                         gameState.currentGameListener(); // Unsubscribe
@@ -2394,7 +2407,7 @@
             const currentPlayer = gameState.players[gameState.currentPlayerIndex];
 
             // Only allow current player to roll
-            if (currentPlayer.id !== gameState.currentUser.id) {
+            if (currentPlayer.userId !== gameState.currentUser.userId) { // Use userId for comparison
                 alert("It's not your turn!");
                 return;
             }
@@ -2451,10 +2464,17 @@
             handleLandingOnCell(currentPlayer, boardPath[currentPlayer.positionIndex]);
 
             // Update game state in Firestore
-            await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                players: gameState.players,
-                boardProperties: gameState.boardProperties, // In case property was bought
-            });
+            if (gameState.currentGameId) {
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        players: gameState.players,
+                        boardProperties: gameState.boardProperties, // In case property was bought
+                    });
+                    console.log(`[Roll Dice Debug] Firestore update successful after roll and move for ${currentPlayer.name}.`);
+                } catch (error) {
+                    console.error(`[Roll Dice Error] Firestore update failed after roll and move for ${currentPlayer.name}:`, error);
+                }
+            }
 
             // Change button text to "END" after movement and cell action
             rollDiceButton.textContent = 'END';
@@ -2606,11 +2626,16 @@
 
                 // Update game state in Firestore
                 if (gameState.currentGameId) {
-                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                        players: gameState.players,
-                        boardProperties: gameState.boardProperties,
-                        boardCellsInfo: gameState.boardCellsInfo // Update cell info for owner/level
-                    });
+                    try {
+                        await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                            players: gameState.players,
+                            boardProperties: gameState.boardProperties,
+                            boardCellsInfo: gameState.boardCellsInfo // Update cell info for owner/level
+                        });
+                        console.log(`[Buy Option Debug] Firestore update successful after property purchase.`);
+                    } catch (error) {
+                        console.error(`[Buy Option Error] Firestore update failed after property purchase:`, error);
+                    }
                 }
                 // IMPORTANT: Do NOT call endTurn() here. The "END" button handles turn progression.
             };
@@ -2648,7 +2673,7 @@
             const upgradeSection = document.getElementById('upgradeSection');
 
             const property = gameState.boardCellsInfo.find(cell => cell.id === cellId);
-            const currentPlayer = gameState.players.find(p => p.id === gameState.currentUser?.id); // Get current logged-in player
+            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId); // Get current logged-in player
 
             if (!property) {
                 console.error("Property not found for details:", cellId);
@@ -2734,7 +2759,7 @@
         // Handle property upgrade
         async function handleUpgradeProperty(propertyId) {
             const property = gameState.boardCellsInfo.find(cell => cell.id === propertyId);
-            const currentPlayer = gameState.players.find(p => p.id === gameState.currentUser?.id);
+            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId);
 
             let propertyDisplayName = property.content[gameState.currentLanguage] || property.content['en'] || property.content;
             let propertyCountryName = property.country ? (property.country[gameState.currentLanguage] || property.country['en'] || property.country) : '';
@@ -2791,18 +2816,23 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    players: gameState.players,
-                    boardProperties: gameState.boardProperties,
-                    boardCellsInfo: gameState.boardCellsInfo // Update cell info for owner/level
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        players: gameState.players,
+                        boardProperties: gameState.boardProperties,
+                        boardCellsInfo: gameState.boardCellsInfo // Update cell info for owner/level
+                    });
+                    console.log(`[Upgrade Debug] Firestore update successful after property upgrade.`);
+                } catch (error) {
+                    console.error(`[Upgrade Error] Firestore update failed after property upgrade:`, error);
+                }
             }
         }
 
         // Handle property downgrade
         async function handleDowngradeProperty(propertyId) {
             const property = gameState.boardCellsInfo.find(cell => cell.id === propertyId);
-            const currentPlayer = gameState.players.find(p => p.id === gameState.currentUser?.id);
+            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId);
 
             let propertyDisplayName = property.content[gameState.currentLanguage] || property.content['en'] || property.content;
 
@@ -2846,11 +2876,16 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    players: gameState.players,
-                    boardProperties: gameState.boardProperties,
-                    boardCellsInfo: gameState.boardCellsInfo // Update cell info for owner/level
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        players: gameState.players,
+                        boardProperties: gameState.boardProperties,
+                        boardCellsInfo: gameState.boardCellsInfo // Update cell info for owner/level
+                    });
+                    console.log(`[Downgrade Debug] Firestore update successful after property downgrade.`);
+                } catch (error) {
+                    console.error(`[Downgrade Error] Firestore update failed after property downgrade:`, error);
+                }
             }
         }
 
@@ -2861,7 +2896,7 @@
             const currentPlayer = gameState.players[gameState.currentPlayerIndex];
 
             // Only allow current player to end turn
-            if (currentPlayer.id !== gameState.currentUser.id) {
+            if (currentPlayer.userId !== gameState.currentUser.userId) { // Use userId for comparison
                 alert("It's not your turn!");
                 return;
             }
@@ -2899,10 +2934,15 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    currentPlayerIndex: gameState.currentPlayerIndex,
-                    players: gameState.players // Update players array as well (money, position)
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        currentPlayerIndex: gameState.currentPlayerIndex,
+                        players: gameState.players // Update players array as well (money, position)
+                    });
+                    console.log(`[End Turn Debug] Firestore update successful after ending turn.`);
+                } catch (error) {
+                    console.error(`[End Turn Error] Firestore update failed after ending turn:`, error);
+                }
             }
 
             // Start the timer for the next player
@@ -3078,7 +3118,7 @@
          * Sends the trade offer based on the values in the trade creation modal.
          */
         async function sendTradeOffer() {
-            const senderPlayerInGame = gameState.players.find(p => p.userId === gameState.currentUser.id); // The current logged-in player is the sender
+            const senderPlayerInGame = gameState.players.find(p => p.userId === gameState.currentUser.userId); // The current logged-in player is the sender
             const recipientUserId = document.getElementById('tradeRecipient').value;
             const offeredMoney = parseInt(document.getElementById('offerMoney').value);
             const requestedMoney = parseInt(document.getElementById('requestMoney').value);
@@ -3152,9 +3192,14 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    pendingTradeOffers: gameState.pendingTradeOffers
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        pendingTradeOffers: gameState.pendingTradeOffers
+                    });
+                    console.log(`[Trade Debug] Firestore update successful after sending trade offer.`);
+                } catch (error) {
+                    console.error(`[Trade Error] Firestore update failed after sending trade offer:`, error);
+                }
             }
             updatePendingTradesList(); // Update the public list
         }
@@ -3342,12 +3387,17 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    players: gameState.players,
-                    boardProperties: gameState.boardProperties,
-                    boardCellsInfo: gameState.boardCellsInfo,
-                    pendingTradeOffers: gameState.pendingTradeOffers
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        players: gameState.players,
+                        boardProperties: gameState.boardProperties,
+                        boardCellsInfo: gameState.boardCellsInfo,
+                        pendingTradeOffers: gameState.pendingTradeOffers
+                    });
+                    console.log(`[Trade Debug] Firestore update successful after trade acceptance.`);
+                } catch (error) {
+                    console.error(`[Trade Error] Firestore update failed after trade acceptance:`, error);
+                }
             }
 
             updatePlayersList();
@@ -3379,9 +3429,14 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    pendingTradeOffers: gameState.pendingTradeOffers
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        pendingTradeOffers: gameState.pendingTradeOffers
+                    });
+                    console.log(`[Trade Debug] Firestore update successful after trade decline.`);
+                } catch (error) {
+                    console.error(`[Trade Error] Firestore update failed after trade decline:`, error);
+                }
             }
             updatePendingTradesList(); // Update the public list
             checkPlayerDebtStatus(); // Check debt status after trade
@@ -3404,9 +3459,14 @@
 
                 // Update game state in Firestore
                 if (gameState.currentGameId) {
-                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                        pendingTradeOffers: gameState.pendingTradeOffers
-                    });
+                    try {
+                        await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                            pendingTradeOffers: gameState.pendingTradeOffers
+                        });
+                        console.log(`[Trade Debug] Firestore update successful after trade cancellation.`);
+                    } catch (error) {
+                        console.error(`[Trade Error] Firestore update failed after trade cancellation:`, error);
+                    }
                 }
                 updatePendingTradesList(); // Update the public list
                 checkPlayerDebtStatus(); // Check debt status after cancellation
@@ -3438,7 +3498,7 @@
 
             const sender = gameState.players.find(p => p.userId === offer.senderUserId);
             const recipient = gameState.players.find(p => p.userId === offer.recipientUserId);
-            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.id);
+            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId);
 
             // Display only names in the details view, without flags
             tradeDetailsSenderName.textContent = sender ? sender.name : 'Unknown';
@@ -3561,7 +3621,7 @@
             // Filter out trades involving players who are no longer in the game
             gameState.pendingTradeOffers = gameState.pendingTradeOffers.filter(offer =>
                 gameState.players.some(p => p.userId === offer.senderUserId) &&
-                gameState.players.some(p => p.id === offer.recipientUserId) // Still check game player ID for recipient
+                gameState.players.some(p => p.userId === offer.recipientUserId) // Use userId for recipient as well
             );
 
             pendingTradesCountElem.textContent = gameState.pendingTradeOffers.length;
@@ -3599,7 +3659,7 @@
         function openSellPropertyModal() {
             const sellPropertyModal = document.getElementById('sellPropertyModal');
             const propertiesToSellList = document.getElementById('propertiesToSellList');
-            const currentPlayer = gameState.players.find(p => p.id === gameState.currentUser?.id);
+            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId);
 
             if (!currentPlayer) {
                 alert(getTranslation('notLoggedIn'));
@@ -3651,7 +3711,7 @@
          */
         async function sellSelectedProperties() {
             const propertiesToSellCheckboxes = document.querySelectorAll('#propertiesToSellList input[type="checkbox"]:checked');
-            const currentPlayer = gameState.players.find(p => p.id === gameState.currentUser?.id);
+            const currentPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId);
             let totalRefund = 0;
             const soldPropertyIds = [];
 
@@ -3695,11 +3755,16 @@
 
             // Update game state in Firestore
             if (gameState.currentGameId) {
-                await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                    players: gameState.players,
-                    boardProperties: gameState.boardProperties,
-                    boardCellsInfo: gameState.boardCellsInfo
-                });
+                try {
+                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                        players: gameState.players,
+                        boardProperties: gameState.boardProperties,
+                        boardCellsInfo: gameState.boardCellsInfo
+                    });
+                    console.log(`[Sell Property Debug] Firestore update successful after selling properties.`);
+                } catch (error) {
+                    console.error(`[Sell Property Error] Firestore update failed after selling properties:`, error);
+                }
             }
         }
 
@@ -3708,8 +3773,8 @@
          * @param {string} playerUserIdToKick - The userId of the player to be kicked.
          */
         async function kickPlayerFromLobby(playerUserIdToKick) {
-            const leaderPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.id); // Leader is the current logged-in user
-            if (!leaderPlayer || leaderPlayer.id !== gameState.leaderId) {
+            const leaderPlayer = gameState.players.find(p => p.userId === gameState.currentUser?.userId); // Leader is the current logged-in user
+            if (!leaderPlayer || leaderPlayer.userId !== gameState.leaderId) { // Compare userId with leaderId
                 alert(getTranslation('onlyLeaderCanKick'));
                 console.warn(`[Lobby Kick Debug] ${Date.now()}: Kick attempt failed. Current user is not the leader.`);
                 return;
@@ -3734,8 +3799,8 @@
             confirmButton.className = 'bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 mr-2';
             confirmButton.onclick = async () => {
                 gameState.players.splice(playerIndexToKick, 1);
-                if (kickedPlayer.id === gameState.leaderId && gameState.players.length > 0) {
-                    gameState.leaderId = gameState.players[0].id; // Assign new leader
+                if (kickedPlayer.userId === gameState.leaderId && gameState.players.length > 0) { // Use userId here
+                    gameState.leaderId = gameState.players[0].userId; // Assign new leader using userId
                 } else if (gameState.players.length === 0) {
                     gameState.leaderId = null;
                 }
@@ -3746,10 +3811,15 @@
 
                 // Update game document in Firestore
                 if (gameState.currentGameId) {
-                    await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                        players: gameState.players,
-                        leaderId: gameState.leaderId
-                    });
+                    try {
+                        await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
+                            players: gameState.players,
+                            leaderId: gameState.leaderId
+                        });
+                        console.log(`[Lobby Kick Debug] Firestore update successful after kicking player from lobby.`);
+                    } catch (error) {
+                        console.error(`[Lobby Kick Error] Firestore update failed after kicking player from lobby:`, error);
+                    }
                 }
 
                 // Disable play button if no players left
@@ -3783,13 +3853,13 @@
                 playerCard.className = 'player-card';
 
                 let crownHtml = '';
-                if (player.id === gameState.leaderId) {
+                if (player.userId === gameState.leaderId) { // Compare userId with leaderId
                     crownHtml = `<i class="fas fa-crown leader-crown"></i>`;
                 }
 
                 let kickButtonHtml = '';
                 // Only show kick button if current user is leader and it's not their own card
-                if (gameState.currentUser && gameState.leaderId !== null && gameState.currentUser.id === gameState.leaderId && player.id !== gameState.currentUser.id) {
+                if (gameState.currentUser && gameState.leaderId !== null && gameState.currentUser.userId === gameState.leaderId && player.userId !== gameState.currentUser.userId) { // Compare userId with leaderId and currentUser.userId
                     kickButtonHtml = `<button class="kick-button" onclick="kickPlayerFromLobby('${player.userId}')">${getTranslation('kick')}</button>`;
                 }
 
@@ -3838,6 +3908,7 @@
                 } else {
                     // If in game, re-populate board to show translated names
                     populateBoard();
+                    addPlayerTokens(); // Re-add tokens to ensure they are on the correct cells after repopulating
                     updatePlayersList();
                     updateMyPropertiesList();
                     updatePendingTradesList();
@@ -3930,14 +4001,14 @@
 
                 if (storedPasswordHash === enteredPasswordHash) {
                     gameState.currentUser = {
-                        id: userData.id, // Firestore document ID as player ID
-                        userId: querySnapshot.docs[0].id, // Firestore document ID as user ID
+                        id: userData.id, // Firestore document ID as player ID (for in-game player objects)
+                        userId: querySnapshot.docs[0].id, // Firestore document ID as user ID (for linking to user doc)
                         name: userData.username,
                         money: userData.money || gameState.STARTING_MONEY,
                         color: userData.color || '#FFFFFF', // Default color if not set
                         positionIndex: userData.positionIndex || 0,
                         isReady: userData.isReady || false,
-                        currentGameId: userData.currentGameId || null // Store current game ID
+                        currentGameId: userData.currentGameId || null
                     };
                     // Update user's online status in Firestore
                     await updateDoc(doc(usersCollectionRef, gameState.currentUser.userId), {
@@ -3958,7 +4029,7 @@
                     displayAuthError(authErrorDiv, authErrorMessageSpan, getTranslation('invalidCredentials'));
                 }
             } catch (error) {
-                console.error("Login error:", error);
+                console.error("Login error:", error.code, error.message, error);
                 displayAuthError(authErrorDiv, authErrorMessageSpan, `Login failed: ${error.message}`);
             }
         }
@@ -4005,7 +4076,7 @@
                     positionIndex: 0,
                     isReady: false,
                     currentGameId: null,
-                    id: newUserId // Store the ID within the document as well
+                    id: newUserId // Store the ID within the document as well (redundant with doc.id but for consistency)
                 });
 
                 alert(getTranslation('createAccountSuccess')); // Assuming translation key
@@ -4016,7 +4087,7 @@
                 signupPasswordInput.value = '';
                 signupConfirmPasswordInput.value = '';
             } catch (error) {
-                console.error("Signup error:", error);
+                console.error("Signup error:", error.code, error.message, error);
                 displayAuthError(signupErrorDiv, signupErrorMessageSpan, `Signup failed: ${error.message}`);
             }
         }
@@ -4037,15 +4108,17 @@
                             const gameData = gameSnap.data();
                             const updatedPlayers = gameData.players.filter(p => p.userId !== gameState.currentUser.userId);
                             await updateDoc(gameDocRef, { players: updatedPlayers });
+                            console.log(`[Logout Debug] User ${gameState.currentUser.name} removed from game ${gameState.currentGameId}.`);
                         }
                         if (gameState.currentGameListener) {
                             gameState.currentGameListener(); // Unsubscribe from game updates
                             gameState.currentGameListener = null;
+                            console.log(`[Logout Debug] Unsubscribed from game listener.`);
                         }
                         gameState.currentGameId = null;
                     }
                 } catch (error) {
-                    console.error("Error updating online status on logout:", error);
+                    console.error("Error updating online status or removing from game on logout:", error.code, error.message, error);
                 }
             }
             gameState.currentUser = null;
@@ -4058,6 +4131,7 @@
             if (gameState.onlineUsersListener) {
                 gameState.onlineUsersListener(); // Stop listening for online users
                 gameState.onlineUsersListener = null;
+                console.log(`[Logout Debug] Unsubscribed from online users listener.`);
             }
 
             document.getElementById('gamePage').classList.add('hidden');
@@ -4082,8 +4156,9 @@
                     }
                 });
                 updateOnlinePlayersList(onlineUsers);
+                console.log(`[Online Users Listener] Updated online users list. Count: ${onlineUsers.length}.`);
             }, (error) => {
-                console.error("Error listening to online users:", error);
+                console.error("Error listening to online users:", error.code, error.message, error);
             });
         }
 
@@ -4153,9 +4228,9 @@
                         await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
                             players: gameData.players
                         });
-                        console.log(`Joined existing game: ${gameState.currentGameId}`);
+                        console.log(`[Game Management] Joined existing game: ${gameState.currentGameId}`);
                     } else {
-                        console.log(`Already in game: ${gameState.currentGameId}`);
+                        console.log(`[Game Management] Already in game: ${gameState.currentGameId}`);
                     }
                 } else {
                     // No waiting games, create a new one
@@ -4175,8 +4250,8 @@
                     gameData = {
                         players: [initialPlayer],
                         status: "waiting",
-                        leaderId: initialPlayer.id, // The first player in game is the leader
-                        hostUserId: gameState.currentUser.userId, // The Firestore userId of the host
+                        leaderId: initialPlayer.userId, // Use userId for leader
+                        hostUserId: gameState.currentUser.userId, // Use userId for host
                         boardCellsInfo: [], // Will be populated when game starts
                         boardProperties: {},
                         currentPlayerIndex: 0,
@@ -4186,7 +4261,7 @@
                     };
 
                     await setDoc(doc(gamesCollectionRef, gameState.currentGameId), gameData);
-                    console.log(`Created new game: ${gameState.currentGameId}`);
+                    console.log(`[Game Management] Created new game: ${gameState.currentGameId}`);
                 }
 
                 // Update current user's gameId in their user document
@@ -4198,7 +4273,7 @@
                 listenToCurrentGame();
 
             } catch (error) {
-                console.error("Error finding or creating game:", error);
+                console.error("Error finding or creating game:", error.code, error.message, error);
                 alert(`Failed to find or create game: ${error.message}`);
                 document.getElementById('lobbyPlayButton').disabled = false;
                 document.getElementById('lobbyMessage').classList.add('hidden');
@@ -4218,7 +4293,7 @@
             gameState.currentGameListener = onSnapshot(doc(gamesCollectionRef, gameState.currentGameId), (docSnap) => {
                 if (docSnap.exists()) {
                     const gameData = docSnap.data();
-                    console.log("Game state updated from Firestore:", gameData);
+                    console.log("[Game Listener] Game state updated from Firestore:", gameData);
 
                     // Update local gameState with data from Firestore
                     gameState.players = gameData.players || [];
@@ -4226,7 +4301,7 @@
                     gameState.boardCellsInfo = gameData.boardCellsInfo || [];
                     gameState.currentPlayerIndex = gameData.currentPlayerIndex || 0;
                     gameState.pendingTradeOffers = gameData.pendingTradeOffers || [];
-                    gameState.leaderId = gameData.leaderId || (gameState.players.length > 0 ? gameState.players[0].id : null);
+                    gameState.leaderId = gameData.leaderId || (gameState.players.length > 0 ? gameState.players[0].userId : null); // Use userId for leader
 
                     // Update UI based on the new game state
                     if (gameData.status === 'waiting') {
@@ -4257,12 +4332,12 @@
                     }
 
                 } else {
-                    console.warn("Current game document no longer exists. Returning to lobby.");
+                    console.warn("[Game Listener] Current game document no longer exists. Returning to lobby.");
                     alert("The game you were in has ended or been deleted.");
                     handleLogout(); // Log out and return to auth modal
                 }
             }, (error) => {
-                console.error("Error listening to current game:", error);
+                console.error("Error listening to current game:", error.code, error.message, error);
                 alert(`Error syncing game: ${error.message}`);
                 handleLogout(); // Log out on listener error
             });
@@ -4293,13 +4368,18 @@
                 // Initialize board for the game
                 populateBoard(); // This sets gameState.boardCellsInfo
                 // Update game document with initial board state and status
-                await updateDoc(gameDocRef, {
-                    status: "in-progress",
-                    boardCellsInfo: gameState.boardCellsInfo,
-                    boardProperties: gameState.boardProperties,
-                    players: gameData.players // Ensure players array is up-to-date
-                });
-                console.log(`Game ${gameState.currentGameId} started by host ${gameState.currentUser.name}.`);
+                try {
+                    await updateDoc(gameDocRef, {
+                        status: "in-progress",
+                        boardCellsInfo: gameState.boardCellsInfo,
+                        boardProperties: gameState.boardProperties,
+                        players: gameData.players // Ensure players array is up-to-date
+                    });
+                    console.log(`[Game Management] Game ${gameState.currentGameId} started by host ${gameState.currentUser.name}.`);
+                } catch (error) {
+                    console.error(`[Game Management Error] Failed to start game ${gameState.currentGameId}:`, error.code, error.message, error);
+                    alert(`Failed to start game: ${error.message}`);
+                }
             } else {
                 alert("Game not found to start.");
                 console.error("Game document not found for starting.");
@@ -4312,7 +4392,7 @@
             console.log("DOMContentLoaded event fired."); // Debug log
             try {
                 const lobbyPage = document.getElementById('lobbyPage');
-                const gamePage = document.getElementById('gamePage');
+                const gamePage = document = document.getElementById('gamePage');
                 const lobbyPlayButton = document.getElementById('lobbyPlayButton');
                 const toggleOnlinePlayersButton = document.getElementById('toggleOnlinePlayers');
                 const onlinePlayersSidebar = document.getElementById('onlinePlayersSidebar');
@@ -4335,7 +4415,7 @@
 
                 // Lobby Page Event Listeners
                 if (lobbyPlayButton) {
-                    lobbyPlayButton.addEventListener('click', startGame); // Now calls startGame
+                    lobbyPlayButton.addEventListener('click', findOrCreateGame); // Now calls findOrCreateGame
                     console.log("Lobby Play button event listener attached.");
                 } else {
                     console.error("Lobby Play button element not found!");
