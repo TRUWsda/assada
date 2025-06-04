@@ -1190,26 +1190,25 @@
             updateDoc,
             deleteDoc
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
 
         // Firebase Configuration (updated to use __firebase_config from Canvas environment)
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "YOUR_API_KEY", // Placeholder if not in Canvas
-            authDomain: "YOUR_AUTH_DOMAIN",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_STORAGE_BUCKET",
-            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-            appId: "YOUR_APP_ID",
-            measurementId: "YOUR_MEASUREMENT_ID"
-        };
+        const firebaseConfig = JSON.parse(__firebase_config);
 
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
 
         // Global App ID for Firestore paths (provided by Canvas environment)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // Users collection will store profiles, using Firebase Auth UID as document ID
         const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/users`);
         const gamesCollectionRef = collection(db, `artifacts/${appId}/public/data/games`);
+
+        // Global variable to store Firebase Auth UID
+        let firebaseAuthUid = null;
 
         // Game State Object
         const gameState = {
@@ -1648,14 +1647,14 @@
             document.getElementById('closeButtonText').textContent = getTranslation('close');
 
             // Auth Modal
-            document.getElementById('authModalTitle').textContent = getTranslation('login');
+            document.getElementById('authModalTitle').textContent = document.getElementById('authLoginForm').classList.contains('hidden') ? getTranslation('createAccount') : getTranslation('login');
             document.getElementById('authUsername').placeholder = getTranslation('username');
             document.getElementById('authPassword').placeholder = getTranslation('password');
             document.getElementById('loginAuthBtn').textContent = getTranslation('login');
             document.getElementById('showSignupBtn').textContent = getTranslation('dontHaveAccount');
 
             document.getElementById('signupUsername').placeholder = getTranslation('username');
-            document.getElementById('signupPassword').placeholder = getTranslation('passwordTooShort'); // Placeholder for password constraint
+            document.getElementById('signupPassword').placeholder = getTranslation('password') + ` (${getTranslation('passwordTooShort')})`; // Placeholder for password constraint
             document.getElementById('signupConfirmPassword').placeholder = getTranslation('confirmPassword');
             document.getElementById('signupAuthBtn').textContent = getTranslation('createAccount');
             document.getElementById('showLoginBtn').textContent = getTranslation('alreadyHaveAccount');
@@ -3094,10 +3093,10 @@
                 });
 
                 // Update requested properties for the selected recipient and then check them
-                updateRequestedPropertiesForRecipient(existingOffer.recipientUserId);
+                updateRequestedPropertiesForRecipient(tradeRecipientSelect.value); // Use tradeRecipientSelect.value here
                 setTimeout(() => { // Small delay to ensure properties are rendered
                     existingOffer.requestedProperties.forEach(propId => {
-                        const checkbox = document.getElementById(`request-prop-${prop.id}`);
+                        const checkbox = document.getElementById(`request-prop-${propId}`); // Corrected: use propId directly
                         if (checkbox) checkbox.checked = true;
                     });
                 }, 50);
@@ -3816,7 +3815,7 @@
                             players: gameState.players,
                             leaderId: gameState.leaderId
                         });
-                        console.log(`[Lobby Kick Debug] Firestore update successful after kicking player from lobby.`);
+                        console.log(`[Lobby Kick Debug] Firestore update successful after kicking player from lobby:`, gameState.players);
                     } catch (error) {
                         console.error(`[Lobby Kick Error] Firestore update failed after kicking player from lobby:`, error);
                     }
@@ -3986,45 +3985,56 @@
                 return;
             }
 
-            try {
-                const q = query(usersCollectionRef, where("username", "==", username));
-                const querySnapshot = await getDocs(q);
+            if (!firebaseAuthUid) {
+                displayAuthError(authErrorDiv, authErrorMessageSpan, "Authentication not ready. Please wait or refresh.");
+                console.error("Firebase Auth UID not available during custom login attempt.");
+                return;
+            }
 
-                if (querySnapshot.empty) {
-                    displayAuthError(authErrorDiv, authErrorMessageSpan, getTranslation('invalidCredentials'));
+            try {
+                // Fetch the user document corresponding to the current Firebase Auth UID
+                const userDocRef = doc(usersCollectionRef, firebaseAuthUid);
+                const userDocSnap = await getDoc(userDocRef);
+
+                if (!userDocSnap.exists()) {
+                    displayAuthError(authErrorDiv, authErrorMessageSpan, "No profile found for this session. Please create an account.");
                     return;
                 }
 
-                const userData = querySnapshot.docs[0].data();
+                const userData = userDocSnap.data();
                 const storedPasswordHash = userData.passwordHash;
                 const enteredPasswordHash = hashPassword(password);
 
-                if (storedPasswordHash === enteredPasswordHash) {
+                // Verify username and password for the fetched profile
+                if (userData.username === username && storedPasswordHash === enteredPasswordHash) {
+                    // Update the user's online status and last active time in Firestore
+                    await updateDoc(userDocRef, {
+                        isOnline: true,
+                        lastActive: Date.now(),
+                        currentGameId: userData.currentGameId || null
+                    }, { merge: true });
+
                     gameState.currentUser = {
-                        id: userData.id, // Firestore document ID as player ID (for in-game player objects)
-                        userId: querySnapshot.docs[0].id, // Firestore document ID as user ID (for linking to user doc)
+                        id: firebaseAuthUid, // Use Firebase Auth UID as the primary ID
+                        userId: firebaseAuthUid, // Firebase UID
                         name: userData.username,
                         money: userData.money || gameState.STARTING_MONEY,
-                        color: userData.color || '#FFFFFF', // Default color if not set
+                        color: userData.color || '#FFFFFF',
                         positionIndex: userData.positionIndex || 0,
                         isReady: userData.isReady || false,
                         currentGameId: userData.currentGameId || null
                     };
-                    // Update user's online status in Firestore
-                    await updateDoc(doc(usersCollectionRef, gameState.currentUser.userId), {
-                        isOnline: true,
-                        lastActive: Date.now()
-                    });
 
                     authModal.classList.add('hidden');
-                    console.log(`User ${username} logged in successfully.`);
+                    console.log(`User ${username} logged in successfully with Firebase Auth UID: ${firebaseAuthUid}.`);
                     alert(getTranslation('loggedInAs', username));
-                    // Transition to lobby page
                     document.getElementById('lobbyPage').classList.remove('hidden');
                     document.getElementById('lobbyPlayerMoney').textContent = gameState.currentUser.money;
                     document.getElementById('currentUserIdDisplay').textContent = gameState.currentUser.name;
-                    startOnlineUsersListener(); // Start listening for other online users
-                    updateOnlinePlayersList(); // Initial update of online players
+                    startOnlineUsersListener();
+                    updateOnlinePlayersList();
+                    updateAllTextContent();
+
                 } else {
                     displayAuthError(authErrorDiv, authErrorMessageSpan, getTranslation('invalidCredentials'));
                 }
@@ -4053,8 +4063,14 @@
                 return;
             }
 
+            if (!firebaseAuthUid) {
+                displayAuthError(signupErrorDiv, signupErrorMessageSpan, "Authentication not ready. Please wait or refresh.");
+                console.error("Firebase Auth UID not available during custom signup attempt.");
+                return;
+            }
+
             try {
-                // Check if username already exists
+                // Check if username already exists in *any* user profile document (public collection)
                 const q = query(usersCollectionRef, where("username", "==", username));
                 const querySnapshot = await getDocs(q);
                 if (!querySnapshot.empty) {
@@ -4062,30 +4078,51 @@
                     return;
                 }
 
-                const newUserId = crypto.randomUUID(); // Generate a unique ID for the user
-                const playerColors = ['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF4500']; // Red, Blue, Green, Yellow, OrangeRed
-                const assignedColor = playerColors[Math.floor(Math.random() * playerColors.length)]; // Assign a random color
+                // Check if a profile already exists for this Firebase Auth UID
+                const userDocRef = doc(usersCollectionRef, firebaseAuthUid);
+                const userDocSnap = await getDoc(userDocRef);
+                if (userDocSnap.exists() && userDocSnap.data().username !== getTranslation('guestUser')) {
+                    displayAuthError(signupErrorDiv, signupErrorMessageSpan, "This session is already linked to an account. Please log in or use a different session.");
+                    return;
+                }
 
-                await setDoc(doc(usersCollectionRef, newUserId), {
+
+                const playerColors = ['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF4500'];
+                const assignedColor = playerColors[Math.floor(Math.random() * playerColors.length)];
+
+                await setDoc(userDocRef, { // Use firebaseAuthUid as the document ID
                     username: username,
                     passwordHash: hashPassword(password),
-                    isOnline: false, // Not online until they log in
-                    lastActive: null,
+                    isOnline: true, // Mark as online immediately
+                    lastActive: Date.now(),
                     money: gameState.STARTING_MONEY,
                     color: assignedColor,
                     positionIndex: 0,
                     isReady: false,
-                    currentGameId: null,
-                    id: newUserId // Store the ID within the document as well (redundant with doc.id but for consistency)
+                    currentGameId: null
                 });
 
-                alert(getTranslation('createAccountSuccess')); // Assuming translation key
-                // As requested, redirect to login page after successful signup
-                showAuthModal('login');
-                authUsernameInput.value = username; // Pre-fill username for convenience
-                signupUsernameInput.value = '';
-                signupPasswordInput.value = '';
-                signupConfirmPasswordInput.value = '';
+                gameState.currentUser = {
+                    id: firebaseAuthUid, // Use Firebase Auth UID as the primary ID
+                    userId: firebaseAuthUid, // Firebase UID
+                    name: username,
+                    money: gameState.STARTING_MONEY,
+                    color: assignedColor,
+                    positionIndex: 0,
+                    isReady: false,
+                    currentGameId: null
+                };
+
+                authModal.classList.add('hidden');
+                console.log(`User ${username} signed up successfully with Firebase Auth UID: ${firebaseAuthUid}.`);
+                alert(getTranslation('loggedInAs', username));
+                document.getElementById('lobbyPage').classList.remove('hidden');
+                document.getElementById('lobbyPlayerMoney').textContent = gameState.currentUser.money;
+                document.getElementById('currentUserIdDisplay').textContent = gameState.currentUser.name;
+                startOnlineUsersListener();
+                updateOnlinePlayersList();
+                updateAllTextContent();
+
             } catch (error) {
                 console.error("Signup error:", error.code, error.message, error);
                 displayAuthError(signupErrorDiv, signupErrorMessageSpan, `Signup failed: ${error.message}`);
@@ -4093,101 +4130,192 @@
         }
 
         async function handleLogout() {
-            if (gameState.currentUser) {
-                try {
-                    // Update user's online status in Firestore
-                    await updateDoc(doc(usersCollectionRef, gameState.currentUser.userId), {
+            try {
+                if (gameState.currentUser && gameState.currentUser.userId) {
+                    // Update user's online status to false in Firestore
+                    const userDocRef = doc(usersCollectionRef, gameState.currentUser.userId);
+                    await updateDoc(userDocRef, {
                         isOnline: false,
-                        lastActive: Date.now()
+                        lastActive: Date.now(),
+                        currentGameId: null // Clear current game ID on logout
                     });
-                    // If in a game, remove from game
-                    if (gameState.currentGameId) {
-                        const gameDocRef = doc(gamesCollectionRef, gameState.currentGameId);
-                        const gameSnap = await getDoc(gameDocRef);
-                        if (gameSnap.exists()) {
-                            const gameData = gameSnap.data();
-                            const updatedPlayers = gameData.players.filter(p => p.userId !== gameState.currentUser.userId);
-                            await updateDoc(gameDocRef, { players: updatedPlayers });
-                            console.log(`[Logout Debug] User ${gameState.currentUser.name} removed from game ${gameState.currentGameId}.`);
-                        }
-                        if (gameState.currentGameListener) {
-                            gameState.currentGameListener(); // Unsubscribe from game updates
-                            gameState.currentGameListener = null;
-                            console.log(`[Logout Debug] Unsubscribed from game listener.`);
-                        }
-                        gameState.currentGameId = null;
-                    }
-                } catch (error) {
-                    console.error("Error updating online status or removing from game on logout:", error.code, error.message, error);
+                    console.log(`User ${gameState.currentUser.name} (ID: ${gameState.currentUser.userId}) marked offline.`);
                 }
-            }
-            gameState.currentUser = null;
-            gameState.players = []; // Clear game players
-            gameState.boardProperties = {};
-            gameState.pendingTradeOffers = [];
-            gameState.currentActiveTradeOffer = null;
-            gameState.leaderId = null;
-            resetTurnTimer(); // Stop any game timers
-            if (gameState.onlineUsersListener) {
-                gameState.onlineUsersListener(); // Stop listening for online users
-                gameState.onlineUsersListener = null;
-                console.log(`[Logout Debug] Unsubscribed from online users listener.`);
-            }
 
-            document.getElementById('gamePage').classList.add('hidden');
-            document.getElementById('lobbyPage').classList.add('hidden');
-            showAuthModal('login'); // Show login modal again
-            updateAllTextContent(); // Update UI for logged out state
-            console.log("User logged out.");
+                if (gameState.onlineUsersListener) {
+                    gameState.onlineUsersListener(); // Unsubscribe from online users
+                    gameState.onlineUsersListener = null;
+                }
+                if (gameState.currentGameListener) {
+                    gameState.currentGameListener(); // Unsubscribe from current game
+                    gameState.currentGameListener = null;
+                }
+
+                await signOut(auth); // Sign out from Firebase Auth
+                gameState.currentUser = null;
+                gameState.currentGameId = null;
+                gameState.players = [];
+                gameState.leaderId = null;
+                firebaseAuthUid = null; // Clear Firebase Auth UID
+
+                document.getElementById('lobbyPage').classList.add('hidden');
+                document.getElementById('gamePage').classList.add('hidden');
+                showAuthModal('login'); // Show login modal
+                console.log("User logged out successfully.");
+                updateAllTextContent(); // Update UI for logged out state
+            } catch (error) {
+                console.error("Logout error:", error);
+                alert(`Logout failed: ${error.message}`);
+            }
         }
 
         // --- Online Users Listener ---
         function startOnlineUsersListener() {
             if (gameState.onlineUsersListener) {
-                gameState.onlineUsersListener(); // Unsubscribe from previous listener if exists
+                gameState.onlineUsersListener(); // Unsubscribe if already listening
             }
-            gameState.onlineUsersListener = onSnapshot(usersCollectionRef, (snapshot) => {
-                const onlineUsers = [];
-                snapshot.forEach(doc => {
+
+            const q = query(usersCollectionRef, where("isOnline", "==", true));
+            gameState.onlineUsersListener = onSnapshot(q, (snapshot) => {
+                const onlinePlayersList = document.getElementById('onlinePlayersList');
+                onlinePlayersList.innerHTML = '';
+                const onlineUsersCount = document.getElementById('onlinePlayersTitle').querySelector('span');
+                let count = 0;
+
+                snapshot.forEach((doc) => {
                     const userData = doc.data();
-                    // Consider a user online if their isOnline flag is true and lastActive is recent (e.g., last 2 minutes)
-                    if (userData.isOnline && (Date.now() - userData.lastActive < 120000)) { // 2 minutes
-                        onlineUsers.push({ id: userData.id, userId: doc.id, name: userData.username, color: userData.color });
+                    // Only display users who are not the current logged-in user
+                    if (gameState.currentUser && userData.username !== gameState.currentUser.name) {
+                        const listItem = document.createElement('li');
+                        listItem.innerHTML = `
+                            <span><i class="fas fa-circle text-green-500 text-xs mr-2"></i> ${userData.username}</span>
+                            <span class="player-status">${getTranslation('online')}</span>
+                        `;
+                        onlinePlayersList.appendChild(listItem);
+                        count++;
                     }
                 });
-                updateOnlinePlayersList(onlineUsers);
-                console.log(`[Online Users Listener] Updated online users list. Count: ${onlineUsers.length}.`);
+                onlineUsersCount.textContent = `(${count})`;
+                console.log(`[Online Users] Updated online players list. Count: ${count}.`);
             }, (error) => {
-                console.error("Error listening to online users:", error.code, error.message, error);
+                console.error("Error fetching online users:", error);
             });
         }
 
-        function updateOnlinePlayersList(onlineUsers = []) {
-            const onlinePlayersListElem = document.getElementById('onlinePlayersList');
-            const onlinePlayersTitle = document.getElementById('onlinePlayersTitle');
-            onlinePlayersListElem.innerHTML = '';
-            onlinePlayersTitle.innerHTML = `${getTranslation('online')} <span class="text-green-400">(${onlineUsers.length})</span>`;
-
-            if (onlineUsers.length === 0) {
-                const listItem = document.createElement('li');
-                listItem.classList.add('text-gray-400', 'text-sm');
-                listItem.textContent = getTranslation('noOnlinePlayers'); // Assuming translation key
-                onlinePlayersListElem.appendChild(listItem);
-            } else {
-                onlineUsers.forEach(user => {
-                    const listItem = document.createElement('li');
-                    listItem.classList.add('flex', 'justify-between', 'items-center', 'py-1');
-                    listItem.innerHTML = `
-                        <span><i class="fas fa-circle mr-2" style="color: ${user.color}; font-size: 0.75rem;"></i> ${user.name}</span>
-                        <span class="player-status">${getTranslation('online')}</span>
-                    `;
-                    onlinePlayersListElem.appendChild(listItem);
-                });
-            }
+        function updateOnlinePlayersList() {
+            // This function is primarily for updating the count and initial display
+            // The onSnapshot listener will handle real-time updates
+            const onlinePlayersList = document.getElementById('onlinePlayersList');
+            const onlineUsersCount = document.getElementById('onlinePlayersTitle').querySelector('span');
+            onlinePlayersList.innerHTML = ''; // Clear for initial render
+            onlineUsersCount.textContent = '(0)';
         }
 
-        // --- Game Management Functions ---
-        async function findOrCreateGame() {
+        // --- Game Listener ---
+        function startGameListener(gameId) {
+            if (gameState.currentGameListener) {
+                gameState.currentGameListener(); // Unsubscribe from previous game
+            }
+
+            const gameDocRef = doc(gamesCollectionRef, gameId);
+            gameState.currentGameListener = onSnapshot(gameDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const gameData = docSnap.data();
+                    console.log(`[Game Listener] Game data updated for game ID: ${gameId}.`, gameData);
+
+                    // Update game state with latest data
+                    gameState.players = gameData.players || [];
+                    gameState.currentPlayerIndex = gameData.currentPlayerIndex || 0;
+                    gameState.boardProperties = gameData.boardProperties || {};
+                    gameState.boardCellsInfo = gameData.boardCellsInfo || [];
+                    gameState.pendingTradeOffers = gameData.pendingTradeOffers || [];
+                    gameState.leaderId = gameData.leaderId || null;
+
+                    // Update UI elements based on new game state
+                    updatePlayersList();
+                    updateMyPropertiesList();
+                    updatePendingTradesList();
+                    updateLobbyPlayerCards(); // For lobby view
+
+                    // Update board cells with new ownership/levels
+                    gameState.boardCellsInfo.forEach(cell => {
+                        const cellElement = document.querySelector(`.${cell.id}`);
+                        if (cellElement) {
+                            updateBoardCellDisplay(cellElement, cell);
+                        }
+                    });
+
+                    // Check if current user is still in the game
+                    const currentUserInGame = gameState.players.find(p => p.userId === gameState.currentUser?.userId);
+                    if (!currentUserInGame) {
+                        alert("You have been removed from the game or the game ended.");
+                        document.getElementById('gamePage').classList.add('hidden');
+                        document.getElementById('lobbyPage').classList.remove('hidden');
+                        gameState.currentGameId = null;
+                        if (gameState.currentGameListener) {
+                            gameState.currentGameListener();
+                            gameState.currentGameListener = null;
+                        }
+                        return;
+                    }
+
+                    // Re-position player tokens
+                    gameState.players.forEach(player => {
+                        const playerToken = document.getElementById(`player-token-${player.id}`);
+                        if (playerToken) {
+                            const targetCell = document.querySelector(`.${boardPath[player.positionIndex]}`);
+                            if (targetCell && playerToken.parentElement !== targetCell) {
+                                targetCell.appendChild(playerToken);
+                            }
+                        }
+                    });
+
+                    // Enable/disable roll dice button based on current player
+                    const rollDiceButton = document.getElementById('rollDiceButton');
+                    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+                    if (currentPlayer && currentPlayer.userId === gameState.currentUser.userId) {
+                        rollDiceButton.disabled = false;
+                        checkPlayerDebtStatus(); // Re-check debt status
+                    } else {
+                        rollDiceButton.disabled = true;
+                    }
+
+                    // Check for incoming trade offers for the current user
+                    const incomingOffer = gameState.pendingTradeOffers.find(
+                        offer => offer.recipientUserId === gameState.currentUser?.userId && offer.status === "pending"
+                    );
+                    if (incomingOffer && !document.getElementById('incomingTradeOfferModal').classList.contains('hidden')) {
+                        // If modal is already open for THIS offer, don't re-open
+                        if (gameState.currentActiveTradeOffer && gameState.currentActiveTradeOffer.offerId === incomingOffer.offerId) {
+                            // Do nothing, already showing this offer
+                        } else {
+                            displayIncomingTradeOffer(incomingOffer);
+                        }
+                    } else if (!incomingOffer && gameState.currentActiveTradeOffer && gameState.currentActiveTradeOffer.recipientUserId === gameState.currentUser?.userId) {
+                        // If there was an active incoming offer but it's no longer pending (accepted/declined by other player or cancelled by sender)
+                        document.getElementById('incomingTradeOfferModal').classList.add('hidden');
+                        gameState.currentActiveTradeOffer = null;
+                    }
+
+
+                } else {
+                    console.warn(`[Game Listener] Game document ${gameId} does not exist. Game might have ended.`);
+                    document.getElementById('gamePage').classList.add('hidden');
+                    document.getElementById('lobbyPage').classList.remove('hidden');
+                    gameState.currentGameId = null;
+                    if (gameState.currentGameListener) {
+                        gameState.currentGameListener();
+                        gameState.currentGameListener = null;
+                    }
+                    alert("The game you were in has ended or was deleted.");
+                }
+            }, (error) => {
+                console.error("Error listening to game document:", error);
+            });
+        }
+
+        // Function to create a new game
+        async function createNewGame() {
             if (!gameState.currentUser) {
                 alert(getTranslation('notLoggedIn'));
                 return;
@@ -4197,304 +4325,306 @@
             document.getElementById('lobbyMessage').classList.remove('hidden');
 
             try {
-                // 1. Check for existing 'waiting' games
-                const q = query(gamesCollectionRef, where("status", "==", "waiting"));
-                const querySnapshot = await getDocs(q);
+                const newGameRef = doc(gamesCollectionRef); // Create a new doc reference with auto-generated ID
+                const newGameId = newGameRef.id;
 
-                let gameDoc;
-                let gameData;
+                const newPlayer = {
+                    id: firebaseAuthUid, // Use Firebase Auth UID as player ID in game state
+                    userId: firebaseAuthUid, // Also store userId for direct comparison
+                    name: gameState.currentUser.name,
+                    money: gameState.STARTING_MONEY,
+                    color: gameState.currentUser.color,
+                    positionIndex: 0,
+                    isReady: true // Creator is ready by default
+                };
 
-                if (!querySnapshot.empty) {
-                    // Join an existing waiting game
-                    gameDoc = querySnapshot.docs[0];
-                    gameData = gameDoc.data();
-                    gameState.currentGameId = gameDoc.id;
-
-                    // Check if current user is already in this game
-                    const isAlreadyInGame = gameData.players.some(p => p.userId === gameState.currentUser.userId);
-                    if (!isAlreadyInGame) {
-                        // Add current user to players array in game data
-                        const newPlayerInGame = {
-                            id: gameData.players.length + 1, // Simple sequential ID for in-game player
-                            userId: gameState.currentUser.userId, // Link to actual user document
-                            name: gameState.currentUser.name,
-                            money: gameState.STARTING_MONEY,
-                            positionIndex: 0,
-                            color: gameState.currentUser.color,
-                            isReady: false
-                        };
-                        gameData.players.push(newPlayerInGame);
-                        // Update Firestore document
-                        await updateDoc(doc(gamesCollectionRef, gameState.currentGameId), {
-                            players: gameData.players
-                        });
-                        console.log(`[Game Management] Joined existing game: ${gameState.currentGameId}`);
-                    } else {
-                        console.log(`[Game Management] Already in game: ${gameState.currentGameId}`);
-                    }
-                } else {
-                    // No waiting games, create a new one
-                    const newGameId = crypto.randomUUID();
-                    gameState.currentGameId = newGameId;
-
-                    const initialPlayer = {
-                        id: 1, // First player in this game instance
-                        userId: gameState.currentUser.userId,
-                        name: gameState.currentUser.name,
-                        money: gameState.STARTING_MONEY,
-                        positionIndex: 0,
-                        color: gameState.currentUser.color,
-                        isReady: false
-                    };
-
-                    gameData = {
-                        players: [initialPlayer],
-                        status: "waiting",
-                        leaderId: initialPlayer.userId, // Use userId for leader
-                        hostUserId: gameState.currentUser.userId, // Use userId for host
-                        boardCellsInfo: [], // Will be populated when game starts
-                        boardProperties: {},
-                        currentPlayerIndex: 0,
-                        pendingTradeOffers: [],
-                        createdAt: Date.now(),
-                        lastActivity: Date.now()
-                    };
-
-                    await setDoc(doc(gamesCollectionRef, gameState.currentGameId), gameData);
-                    console.log(`[Game Management] Created new game: ${gameState.currentGameId}`);
-                }
-
-                // Update current user's gameId in their user document
-                await updateDoc(doc(usersCollectionRef, gameState.currentUser.userId), {
-                    currentGameId: gameState.currentGameId
+                await setDoc(newGameRef, {
+                    gameId: newGameId,
+                    players: [newPlayer],
+                    currentPlayerIndex: 0,
+                    boardProperties: {},
+                    boardCellsInfo: gameState.boardCellsInfo, // Store initial board info
+                    pendingTradeOffers: [],
+                    leaderId: newPlayer.userId, // Creator is the leader
+                    status: 'lobby', // 'lobby', 'in-game', 'ended'
+                    createdAt: Date.now()
                 });
 
-                // Start listening to this specific game document
-                listenToCurrentGame();
+                // Update current user's gameId in their user profile
+                const userDocRef = doc(usersCollectionRef, gameState.currentUser.userId);
+                await updateDoc(userDocRef, {
+                    currentGameId: newGameId
+                });
 
+                gameState.currentGameId = newGameId;
+                gameState.players = [newPlayer];
+                gameState.leaderId = newPlayer.userId;
+                console.log(`[Game Creation] New game created with ID: ${newGameId}. Leader: ${newPlayer.name}.`);
+                updateLobbyPlayerCards(); // Update to show the new player
+                document.getElementById('lobbyMessage').classList.add('hidden');
+                document.getElementById('lobbyPlayButton').disabled = false;
+                startGameListener(newGameId); // Start listening to the new game
+                populateBoard(); // Populate board for the game view
+                addPlayerTokens(); // Add player tokens to the board
+                updatePlayersList(); // Update players list in game view
+                updateMyPropertiesList(); // Update properties list in game view
+                document.getElementById('lobbyPage').classList.add('hidden');
+                document.getElementById('gamePage').classList.remove('hidden');
+                startTurnTimer(); // Start timer for the first player
             } catch (error) {
-                console.error("Error finding or creating game:", error.code, error.message, error);
-                alert(`Failed to find or create game: ${error.message}`);
+                console.error("Error creating new game:", error);
+                alert(`Failed to create game: ${error.message}`);
                 document.getElementById('lobbyPlayButton').disabled = false;
                 document.getElementById('lobbyMessage').classList.add('hidden');
             }
         }
 
-        function listenToCurrentGame() {
-            if (gameState.currentGameListener) {
-                gameState.currentGameListener(); // Unsubscribe from previous listener
-            }
-
-            if (!gameState.currentGameId) {
-                console.warn("No current game ID to listen to.");
-                return;
-            }
-
-            gameState.currentGameListener = onSnapshot(doc(gamesCollectionRef, gameState.currentGameId), (docSnap) => {
-                if (docSnap.exists()) {
-                    const gameData = docSnap.data();
-                    console.log("[Game Listener] Game state updated from Firestore:", gameData);
-
-                    // Update local gameState with data from Firestore
-                    gameState.players = gameData.players || [];
-                    gameState.boardProperties = gameData.boardProperties || {};
-                    gameState.boardCellsInfo = gameData.boardCellsInfo || [];
-                    gameState.currentPlayerIndex = gameData.currentPlayerIndex || 0;
-                    gameState.pendingTradeOffers = gameData.pendingTradeOffers || [];
-                    gameState.leaderId = gameData.leaderId || (gameState.players.length > 0 ? gameState.players[0].userId : null); // Use userId for leader
-
-                    // Update UI based on the new game state
-                    if (gameData.status === 'waiting') {
-                        document.getElementById('lobbyPage').classList.remove('hidden');
-                        document.getElementById('gamePage').classList.add('hidden');
-                        document.getElementById('lobbyMessage').classList.remove('hidden');
-                        document.getElementById('lobbyPlayerCount').textContent = `${gameState.players.length}/${MAX_PLAYERS_PER_GAME}`;
-                        document.getElementById('lobbyPlayButton').disabled = gameState.players.length < 2; // Enable if 2+ players
-                        updateLobbyPlayerCards();
-                    } else if (gameData.status === 'in-progress') {
-                        document.getElementById('lobbyPage').classList.add('hidden');
-                        document.getElementById('gamePage').classList.remove('hidden');
-                        document.getElementById('lobbyMessage').classList.add('hidden');
-                        populateBoard(); // Re-render board with updated info
-                        addPlayerTokens(); // Re-add tokens based on current players
-                        updatePlayersList();
-                        updateMyPropertiesList();
-                        updatePendingTradesList();
-                        checkPlayerDebtStatus();
-                        // Start timer if it's the current player's turn and not already running
-                        const currentPlayerInGame = gameState.players[gameState.currentPlayerIndex];
-                        if (currentPlayerInGame && currentPlayerInGame.userId === gameState.currentUser.userId && turnTimer === null) {
-                             startTurnTimer();
-                        }
-                    } else if (gameData.status === 'finished') {
-                        alert("Game Over!");
-                        handleLogout(); // Log out and return to auth modal
-                    }
-
-                } else {
-                    console.warn("[Game Listener] Current game document no longer exists. Returning to lobby.");
-                    alert("The game you were in has ended or been deleted.");
-                    handleLogout(); // Log out and return to auth modal
-                }
-            }, (error) => {
-                console.error("Error listening to current game:", error.code, error.message, error);
-                alert(`Error syncing game: ${error.message}`);
-                handleLogout(); // Log out on listener error
-            });
-        }
-
-        async function startGame() {
-            if (!gameState.currentUser || !gameState.currentGameId) {
+        // Function to join an existing game
+        async function joinGame(gameId) {
+            if (!gameState.currentUser) {
                 alert(getTranslation('notLoggedIn'));
                 return;
             }
 
-            const gameDocRef = doc(gamesCollectionRef, gameState.currentGameId);
-            const gameSnap = await getDoc(gameDocRef);
+            document.getElementById('lobbyPlayButton').disabled = true;
+            document.getElementById('lobbyMessage').classList.remove('hidden');
 
-            if (gameSnap.exists()) {
-                const gameData = gameSnap.data();
-                // Only the host can start the game
-                if (gameData.hostUserId !== gameState.currentUser.userId) {
-                    alert("Only the host can start the game.");
+            try {
+                const gameDocRef = doc(gamesCollectionRef, gameId);
+                const gameDocSnap = await getDoc(gameDocRef);
+
+                if (!gameDocSnap.exists()) {
+                    alert("Game not found!");
+                    document.getElementById('lobbyPlayButton').disabled = false;
+                    document.getElementById('lobbyMessage').classList.add('hidden');
                     return;
                 }
 
-                if (gameData.players.length < 2) {
-                    alert(getTranslation("addAtLeastOnePlayer"));
+                const gameData = gameDocSnap.data();
+
+                if (gameData.players.length >= MAX_PLAYERS_PER_GAME) {
+                    alert(getTranslation('maxPlayersReached'));
+                    document.getElementById('lobbyPlayButton').disabled = false;
+                    document.getElementById('lobbyMessage').classList.add('hidden');
                     return;
                 }
 
-                // Initialize board for the game
-                populateBoard(); // This sets gameState.boardCellsInfo
-                // Update game document with initial board state and status
-                try {
-                    await updateDoc(gameDocRef, {
-                        status: "in-progress",
-                        boardCellsInfo: gameState.boardCellsInfo,
-                        boardProperties: gameState.boardProperties,
-                        players: gameData.players // Ensure players array is up-to-date
-                    });
-                    console.log(`[Game Management] Game ${gameState.currentGameId} started by host ${gameState.currentUser.name}.`);
-                } catch (error) {
-                    console.error(`[Game Management Error] Failed to start game ${gameState.currentGameId}:`, error.code, error.message, error);
-                    alert(`Failed to start game: ${error.message}`);
+                // Check if player is already in this game
+                if (gameData.players.some(p => p.userId === gameState.currentUser.userId)) {
+                    alert("You are already in this game!");
+                    gameState.currentGameId = gameId; // Ensure current game ID is set
+                    gameState.players = gameData.players;
+                    gameState.boardProperties = gameData.boardProperties;
+                    gameState.boardCellsInfo = gameData.boardCellsInfo;
+                    gameState.pendingTradeOffers = gameData.pendingTradeOffers;
+                    gameState.leaderId = gameData.leaderId;
+                    document.getElementById('lobbyPage').classList.add('hidden');
+                    document.getElementById('gamePage').classList.remove('hidden');
+                    populateBoard();
+                    addPlayerTokens();
+                    updatePlayersList();
+                    updateMyPropertiesList();
+                    updatePendingTradesList();
+                    startGameListener(gameId);
+                    document.getElementById('lobbyPlayButton').disabled = false;
+                    document.getElementById('lobbyMessage').classList.add('hidden');
+                    startTurnTimer(); // Start timer if game is in progress
+                    return;
                 }
-            } else {
-                alert("Game not found to start.");
-                console.error("Game document not found for starting.");
+
+                const newPlayer = {
+                    id: firebaseAuthUid, // Use Firebase Auth UID as player ID in game state
+                    userId: firebaseAuthUid, // Also store userId for direct comparison
+                    name: gameState.currentUser.name,
+                    money: gameState.STARTING_MONEY,
+                    color: gameState.currentUser.color,
+                    positionIndex: 0,
+                    isReady: true
+                };
+
+                const updatedPlayers = [...gameData.players, newPlayer];
+
+                await updateDoc(gameDocRef, {
+                    players: updatedPlayers
+                });
+
+                // Update current user's gameId in their user profile
+                const userDocRef = doc(usersCollectionRef, gameState.currentUser.userId);
+                await updateDoc(userDocRef, {
+                    currentGameId: gameId
+                });
+
+                gameState.currentGameId = gameId;
+                gameState.players = updatedPlayers;
+                gameState.boardProperties = gameData.boardProperties;
+                gameState.boardCellsInfo = gameData.boardCellsInfo;
+                gameState.pendingTradeOffers = gameData.pendingTradeOffers;
+                gameState.leaderId = gameData.leaderId;
+
+                console.log(`[Game Join] User ${newPlayer.name} joined game ID: ${gameId}.`);
+                updateLobbyPlayerCards();
+                document.getElementById('lobbyMessage').classList.add('hidden');
+                document.getElementById('lobbyPlayButton').disabled = false;
+                startGameListener(gameId);
+                populateBoard();
+                addPlayerTokens();
+                updatePlayersList();
+                updateMyPropertiesList();
+                updatePendingTradesList();
+                document.getElementById('lobbyPage').classList.add('hidden');
+                document.getElementById('gamePage').classList.remove('hidden');
+                startTurnTimer(); // Start timer if game is in progress
+            } catch (error) {
+                console.error("Error joining game:", error);
+                alert(`Failed to join game: ${error.message}`);
+                document.getElementById('lobbyPlayButton').disabled = false;
+                document.getElementById('lobbyMessage').classList.add('hidden');
             }
         }
 
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log("DOM Content Loaded. Initializing Firebase Auth.");
 
-        // DOM Content Loaded event listener
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log("DOMContentLoaded event fired."); // Debug log
-            try {
-                const lobbyPage = document.getElementById('lobbyPage');
-                const gamePage = document.getElementById('gamePage'); // Corrected: removed 'document ='
-                const lobbyPlayButton = document.getElementById('lobbyPlayButton');
-                const toggleOnlinePlayersButton = document.getElementById('toggleOnlinePlayers');
-                const onlinePlayersSidebar = document.getElementById('onlinePlayersSidebar');
-                const settingsBtn = document.getElementById('settingsBtn');
-                const applySettingsBtn = document.getElementById('applySettingsBtn');
-                const closeSettingsBtn = document.getElementById('closeSettingsBtn');
-                const logoutLobbyBtn = document.getElementById('logoutLobbyBtn');
+            // Initial Firebase Auth check
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    firebaseAuthUid = user.uid;
+                    console.log(`Firebase Auth user detected: ${firebaseAuthUid}`);
 
-                // Initial state: show authentication modal
-                showAuthModal('login');
-                updateAllTextContent(); // Apply initial language to auth modal
+                    // Try to fetch user profile from Firestore
+                    const userDocRef = doc(usersCollectionRef, firebaseAuthUid);
+                    const userDocSnap = await getDoc(userDocRef);
 
+                    if (userDocSnap.exists()) {
+                        const userData = userDocSnap.data();
+                        gameState.currentUser = {
+                            id: firebaseAuthUid,
+                            userId: firebaseAuthUid,
+                            name: userData.username,
+                            money: userData.money || gameState.STARTING_MONEY,
+                            color: userData.color || '#FFFFFF',
+                            positionIndex: userData.positionIndex || 0,
+                            isReady: userData.isReady || false,
+                            currentGameId: userData.currentGameId || null
+                        };
+                        gameState.currentLanguage = userData.language || 'en'; // Load user's preferred language
 
-                // Auth Modal Event Listeners
-                loginAuthBtn.addEventListener('click', handleLogin);
-                signupAuthBtn.addEventListener('click', handleSignup);
-                showSignupBtn.addEventListener('click', () => showAuthModal('signup'));
-                showLoginBtn.addEventListener('click', () => showAuthModal('login'));
-                closeAuthModalBtn.addEventListener('click', handleLogout); // Close modal logs out
-
-                // Lobby Page Event Listeners
-                if (lobbyPlayButton) {
-                    lobbyPlayButton.addEventListener('click', findOrCreateGame); // Now calls findOrCreateGame
-                    console.log("Lobby Play button event listener attached.");
+                        // If user is in a game, attempt to join/rejoin it
+                        if (gameState.currentUser.currentGameId) {
+                            console.log(`User ${gameState.currentUser.name} was in game ${gameState.currentUser.currentGameId}. Attempting to rejoin.`);
+                            await joinGame(gameState.currentUser.currentGameId);
+                        } else {
+                            // Otherwise, show lobby
+                            document.getElementById('lobbyPage').classList.remove('hidden');
+                            document.getElementById('lobbyPlayerMoney').textContent = gameState.currentUser.money;
+                            document.getElementById('currentUserIdDisplay').textContent = gameState.currentUser.name;
+                            startOnlineUsersListener();
+                            updateOnlinePlayersList();
+                            updateLobbyPlayerCards(); // Initial update of lobby cards
+                        }
+                        console.log("Current user loaded from Firestore:", gameState.currentUser);
+                    } else {
+                        // If Firebase Auth user exists but no Firestore profile, create a guest profile
+                        const guestUsername = `${getTranslation('guestUser')} ${Math.floor(Math.random() * 10000)}`;
+                        const assignedColor = ['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF4500'][Math.floor(Math.random() * 5)];
+                        await setDoc(userDocRef, {
+                            username: guestUsername,
+                            passwordHash: hashPassword(crypto.randomUUID()), // Placeholder password for guest
+                            isOnline: true,
+                            lastActive: Date.now(),
+                            money: gameState.STARTING_MONEY,
+                            color: assignedColor,
+                            positionIndex: 0,
+                            isReady: false,
+                            currentGameId: null,
+                            language: gameState.currentLanguage // Save default language
+                        });
+                        gameState.currentUser = {
+                            id: firebaseAuthUid,
+                            userId: firebaseAuthUid,
+                            name: guestUsername,
+                            money: gameState.STARTING_MONEY,
+                            color: assignedColor,
+                            positionIndex: 0,
+                            isReady: false,
+                            currentGameId: null
+                        };
+                        document.getElementById('lobbyPage').classList.remove('hidden');
+                        document.getElementById('lobbyPlayerMoney').textContent = gameState.currentUser.money;
+                        document.getElementById('currentUserIdDisplay').textContent = gameState.currentUser.name;
+                        startOnlineUsersListener();
+                        updateOnlinePlayersList();
+                        updateLobbyPlayerCards(); // Initial update of lobby cards
+                        console.log(`Guest user profile created for Firebase Auth UID: ${firebaseAuthUid}.`);
+                    }
+                    updateAllTextContent(); // Update all text content based on loaded language
                 } else {
-                    console.error("Lobby Play button element not found!");
-                }
-
-                if (logoutLobbyBtn) {
-                    logoutLobbyBtn.addEventListener('click', handleLogout);
-                }
-
-                // Toggle switch functionality for "CLOSED PARTY" on the lobby page
-                const toggleCheckbox = document.getElementById('closedPartyToggle');
-                if (toggleCheckbox) {
-                    toggleCheckbox.addEventListener('change', function() {
-                        const toggleDot = this.nextElementSibling.querySelector('.toggle-dot');
-                        if (this.checked) {
-                            toggleDot.style.left = 'calc(100% - 17px)'; /* Move to right */
-                            this.nextElementSibling.style.backgroundColor = '#8a2be2'; /* Purple when active */
+                    // No Firebase Auth user, attempt anonymous sign-in or show login modal
+                    try {
+                        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                            console.log("Signed in with custom token.");
                         } else {
-                            toggleDot.style.left = '3px'; /* Move to left */
-                            this.nextElementSibling.style.backgroundColor = '#6b7280'; /* Gray when inactive */
+                            await signInAnonymously(auth);
+                            console.log("Signed in anonymously.");
                         }
-                        console.log(`[Lobby Debug] ${Date.now()}: Closed Party toggle changed to: ${this.checked}.`);
-                    });
+                    } catch (error) {
+                        console.error("Firebase initial sign-in failed:", error);
+                        // If anonymous sign-in also fails, show the login modal
+                        showAuthModal('login');
+                    }
                 }
+            });
 
-                // Toggle button for Online Players sidebar
-                if (toggleOnlinePlayersButton && onlinePlayersSidebar) {
-                    onlinePlayersSidebar.classList.add('hidden-content');
-                    const icon = toggleOnlinePlayersButton.querySelector('i');
-                    icon.classList.remove('fa-eye');
-                    icon.classList.add('fa-eye-slash');
+            // Populate board initially (even before game starts, for data structure)
+            populateBoard();
 
-                    toggleOnlinePlayersButton.addEventListener('click', () => {
-                        onlinePlayersSidebar.classList.toggle('hidden-content');
-                        if (onlinePlayersSidebar.classList.contains('hidden-content')) {
-                            icon.classList.remove('fa-eye');
-                            icon.classList.add('fa-eye-slash');
-                            console.log(`[Lobby Debug] ${Date.now()}: Online Players sidebar hidden.`);
-                        } else {
-                            icon.classList.remove('fa-eye-slash');
-                            icon.classList.add('fa-eye');
-                            updateOnlinePlayersList(); // Refresh list when shown
-                            console.log(`[Lobby Debug] ${Date.now()}: Online Players sidebar shown.`);
-                        }
-                    });
+            // Auth Modal Event Listeners
+            loginAuthBtn.addEventListener('click', handleLogin);
+            signupAuthBtn.addEventListener('click', handleSignup);
+            showSignupBtn.addEventListener('click', () => showAuthModal('signup'));
+            showLoginBtn.addEventListener('click', () => showAuthModal('login'));
+            closeAuthModalBtn.addEventListener('click', () => authModal.classList.add('hidden'));
+
+            // Lobby Page Event Listeners
+            document.getElementById('lobbyPlayButton').addEventListener('click', async () => {
+                if (gameState.currentGameId) {
+                    await joinGame(gameState.currentGameId); // If already in a game, try to rejoin
+                } else {
+                    await createNewGame(); // Otherwise, create a new one
                 }
+            });
 
-                // Settings button listeners
-                if (settingsBtn) {
-                    settingsBtn.addEventListener('click', openSettingsModal);
-                }
-                if (applySettingsBtn) {
-                    applySettingsBtn.addEventListener('click', applySettings);
-                }
-                if (closeSettingsBtn) {
-                    closeSettingsBtn.addEventListener('click', closeSettingsModal);
-                }
+            document.getElementById('logoutLobbyBtn').addEventListener('click', handleLogout); // Added logout listener
 
-                // Attach event listener for sending trade offer
-                document.getElementById('sendTradeOfferBtn').addEventListener('click', sendTradeOffer);
-                document.getElementById('acceptTradeBtn').addEventListener('click', acceptTrade);
-                document.getElementById('declineTradeBtn').addEventListener('click', declineTrade);
-                document.getElementById('confirmSellPropertiesBtn').addEventListener('click', sellSelectedProperties); // Attach sell properties listener
+            // Settings button
+            document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
+            document.getElementById('applySettingsBtn').addEventListener('click', applySettings);
+            document.getElementById('closeSettingsBtn').addEventListener('click', closeSettingsModal);
 
+            // Toggle online players sidebar
+            document.getElementById('toggleOnlinePlayers').addEventListener('click', () => {
+                document.getElementById('onlinePlayersSidebar').classList.toggle('hidden-content');
+            });
 
-                // Chat elements are disabled, so no need for listeners
-                const chatSendBtn = document.getElementById('chatSendBtn');
-                const chatInput = document.getElementById('chatInput');
-                if (chatSendBtn) {
-                    chatSendBtn.disabled = true;
-                }
-                if (chatInput) {
-                    chatInput.disabled = true;
-                }
+            // Trade System Event Listeners
+            document.getElementById('sendTradeOfferBtn').addEventListener('click', sendTradeOffer);
+            document.getElementById('acceptTradeBtn').addEventListener('click', acceptTrade);
+            document.getElementById('declineTradeBtn').addEventListener('click', declineTrade);
+            document.getElementById('confirmSellPropertiesBtn').addEventListener('click', sellSelectedProperties);
 
-            } catch (error) {
-                console.error("Error during DOMContentLoaded setup:", error); // Catch any errors during setup
-            }
+            // Initial text content update (will be re-run after auth and language load)
+            updateAllTextContent();
         });
+
+        // Expose functions to global scope for inline HTML event handlers (e.g., onclick)
+        window.openTradeCreationModal = openTradeCreationModal;
+        window.kickPlayerFromLobby = kickPlayerFromLobby;
+        window.displayPropertyDetails = displayPropertyDetails;
+        window.openSellPropertyModal = openSellPropertyModal;
+        window.displayTradeDetailsView = displayTradeDetailsView; // Expose for pending trades list items
     </script>
 </body>
 </html>
