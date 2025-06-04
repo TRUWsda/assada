@@ -1028,7 +1028,7 @@
                     <p class="text-sm text-gray-400 mb-3" id="useCreateText">
                         Use the "Create" button to initiate a new trade.
                     </p>
-                    <button class="btn-primary w-full py-2 rounded-md" onclick="openTradeCreationModal(gameState.players[gameState.currentPlayerIndex].id)"><i class="fas fa-plus mr-2"></i> <span id="createButtonText">Create</span></button>
+                    <button class="btn-primary w-full py-2 rounded-md" onclick="openTradeCreationModal(gameState.players[gameState.currentPlayerIndex].userId)"><i class="fas fa-plus mr-2"></i> <span id="createButtonText">Create</span></button>
                 </div>
 
                 <div class="bg-[#22223b] p-4 rounded-lg shadow-md">
@@ -3059,7 +3059,7 @@
                     let propertyDisplayName = originalCell.content[gameState.currentLanguage] || originalCell.content['en'] || originalCell.content;
                     if (originalCell && originalCell.type === 'city') {
                         iconHtml = `${getCountryFlagImage(originalCell.country[gameState.currentLanguage] || originalCell.country['en'])}`;
-                    } else if (originalCell && originalCell.type === 'company') {
+                    } else if (originalCell && original.type === 'company') {
                         iconHtml = `<span class="text-lg">${getCompanyEmoji(propertyDisplayName)}</span>`;
                     }
                     listItem.innerHTML = `
@@ -3691,7 +3691,7 @@
                     let propertyDisplayName = originalCell.content[gameState.currentLanguage] || originalCell.content['en'] || originalCell.content;
                     if (originalCell && originalCell.type === 'city') {
                         iconHtml = `${getCountryFlagImage(originalCell.country[gameState.currentLanguage] || originalCell.country['en'])}`;
-                    } else if (originalCell && originalCell.type === 'company') {
+                    } else if (originalCell && original.type === 'company') {
                         iconHtml = `<span class="text-lg">${getCompanyEmoji(propertyDisplayName)}</span>`;
                     }
                     listItem.innerHTML = `
@@ -4392,7 +4392,7 @@
             console.log("DOMContentLoaded event fired."); // Debug log
             try {
                 const lobbyPage = document.getElementById('lobbyPage');
-                const gamePage = document = document.getElementById('gamePage');
+                const gamePage = document.getElementById('gamePage'); // Corrected: removed 'document ='
                 const lobbyPlayButton = document.getElementById('lobbyPlayButton');
                 const toggleOnlinePlayersButton = document.getElementById('toggleOnlinePlayers');
                 const onlinePlayersSidebar = document.getElementById('onlinePlayersSidebar');
